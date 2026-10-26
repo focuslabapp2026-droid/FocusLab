@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notebook • FocusLab</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='64' y2='64'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%2360a5fa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='44' font-family='Arial, Helvetica, sans-serif' font-weight='900' font-size='28' fill='white' text-anchor='middle'%3EFL%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="../style/main.css">
+    <script>
+        /* Apply the saved colour mode before the page paints (no flash). */
+        try {
+            var __t = localStorage.getItem("focusLab_theme");
+            document.documentElement.setAttribute("data-theme", (__t === "light" || __t === "dark") ? __t : "focus");
+        } catch (e) {}
+    </script>
+</head>
+
+<body class="notebook-page">
+
+<div id="app-screen" class="tasks-app-screen notebook-screen">
+
+    <!-- NOTEBOOK APP (its own page, loaded edge to edge) -->
+    <iframe id="nbFrame" class="nb-frame" src="notebook-app.html" title="Notebook"></iframe>
+
+    <!-- Small tab that brings the top bar back (touch screens and mouse) -->
+    <button id="nbPeek" class="nb-peek" aria-label="Show the top bar" title="Show the top bar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+
+    <!-- Clicking outside the burger menu closes it -->
+    <div id="nbScrim" class="nb-scrim"></div>
+
+    <!-- TOP BAR — hidden by default on this page. It slides in when the mouse
+         (or a finger) reaches the very top, and hides again a few seconds later. -->
+    <header class="tasks-header">
+
+        <button class="burger-btn" onclick="toggleSidebar()" aria-label="Open menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+
+        <a href="../index.html" class="brand tasks-brand">
+            <div class="brand-mark">FL</div>
+            <span>FocusLab</span>
+        </a>
+
+        <div class="mobile-header-nav">
+            <a href="../index.html" class="mobile-nav-btn" title="Home"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10.5L12 4L20 10.5V20H4V10.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 20V14H15V20" stroke="currentColor" stroke-width="1.7"/></svg></a>
+            <a href="tasks.html" class="mobile-nav-btn" title="Tasks"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M8 8L9.5 9.5L12 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 9H17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 13L9.5 14.5L12 12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 14H17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></a>
+            <a href="video.html" class="mobile-nav-btn" title="Videos"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M10 9L16 12L10 15V9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></a>
+            <a href="notebook.html" class="mobile-nav-btn active" title="Notebook"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5H17.5C18.33 3.5 19 4.17 19 5V19C19 19.83 18.33 20.5 17.5 20.5H6V3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M6 3.5V20.5" stroke="currentColor" stroke-width="1.7"/><path d="M10 8H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M10 12H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></a>
+<a href="friends.html" class="mobile-nav-btn" title="Friends"><svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19C4 15.8 6.2 14.2 9 14.2C11.8 14.2 14 15.8 14.5 19" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="17" cy="9.5" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16.5 14.4C18.9 14.3 20.4 15.7 20.8 18.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></a>
+        </div>
+
+    </header>
+
+    <!-- BURGER MENU — closed when the page opens -->
+    <aside id="sidebar" class="sidebar closed">
+
+        <div class="sidebar-user">
+            <img
+                id="sidebar-avatar"
+                class="sidebar-avatar avatar-clickable"
+                src="../images/avatars/avatar1.jpeg"
+                alt="Avatar"
+                onclick="openAvatarEditModal()"
+                title="Change avatar"
+            >
+            <div>
+                <strong id="sidebar-user-name">Focus User</strong>
+                <span>FocusLab</span>
+            </div>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <nav class="sidebar-nav">
+
+            <a href="../index.html" class="sidebar-item"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10.5L12 4L20 10.5V20H4V10.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 20V14H15V20" stroke="currentColor" stroke-width="1.7"/></svg><span>Home</span></a>
+            <a href="tasks.html" class="sidebar-item"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M8 8L9.5 9.5L12 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 9H17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 13L9.5 14.5L12 12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 14H17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Tasks</span></a>
+            <a href="video.html" class="sidebar-item"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M10 9L16 12L10 15V9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg><span>Videos</span></a>
+            <a href="notebook.html" class="sidebar-item active"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5H17.5C18.33 3.5 19 4.17 19 5V19C19 19.83 18.33 20.5 17.5 20.5H6V3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M6 3.5V20.5" stroke="currentColor" stroke-width="1.7"/><path d="M10 8H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M10 12H15.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Notebook</span></a>
+<a href="friends.html" class="sidebar-item"><svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19C4 15.8 6.2 14.2 9 14.2C11.8 14.2 14 15.8 14.5 19" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="17" cy="9.5" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16.5 14.4C18.9 14.3 20.4 15.7 20.8 18.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Friends</span></a>
+
+            <button class="sidebar-item sidebar-button" onclick="toggleMusicPanel()"><svg viewBox="0 0 24 24" fill="none"><path d="M9 18V6L19 4V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="16.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.7"/></svg><span>Music</span></button>
+
+            <button class="sidebar-item sidebar-button" onclick="openSettingsModal()"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span>Settings</span></button>
+
+        </nav>
+
+    </aside>
+
+    <!-- MUSIC PANEL — opens in the exact place of the sidebar, hiding it -->
+    <aside id="musicSidebarPanel" class="sidebar music-sidebar-panel panel-hidden">
+
+        <div class="music-panel-header">
+            <h3>Focus Music</h3>
+            <button class="music-close" onclick="closeMusicSidebarPanel()">✕</button>
+        </div>
+
+        <input
+            type="file"
+            id="musicFileInput"
+            accept="audio/mpeg,audio/mp3,video/mp4,audio/mp4,.mp3,.mp4"
+            multiple
+            style="display:none"
+            onchange="handleMusicFileSelected(event)"
+        >
+
+        <div id="musicListContainer" class="music-list-container"></div>
+
+        <button class="music-stop-button" onclick="stopMusic()">Stop Music</button>
+
+        <!-- Add Music sits last, at the end of the playlist window -->
+        <button class="add-music-button" onclick="triggerAddMusic()">+ Add Music</button>
+
+    </aside>
+
+</div>
+
+    <!-- SETTINGS -->
+    <div id="settingsModal" class="modal-overlay">
+        <div class="modal-box settings-box">
+            <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+            <div class="modal-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+            <h2>Settings</h2>
+            <p class="modal-description">Sound, screen and colours.</p>
+
+            <div class="settings-row">
+                <div class="settings-text">
+                    <strong>Sound</strong>
+                    <span id="settingsSoundHint">Sound is on</span>
+                </div>
+                <button id="settingsSoundBtn" class="settings-switch on" role="switch" aria-checked="true" aria-label="Sound" onclick="toggleSiteSound()"><i></i></button>
+            </div>
+
+            <div class="settings-row">
+                <div class="settings-text">
+                    <strong>Full screen</strong>
+                    <span id="settingsFullscreenHint">Fill the whole screen with the site</span>
+                </div>
+                <button id="settingsFullscreenBtn" class="settings-switch" role="switch" aria-checked="false" aria-label="Full screen" onclick="toggleSiteFullscreen()"><i></i></button>
+            </div>
+
+            <div class="settings-block">
+                <strong>Appearance</strong>
+                <div class="appearance-switcher">
+                    <button type="button" class="appearance-option" data-theme-option="light" onclick="setSiteTheme('light')"><span class="swatch"></span>Light</button>
+                    <button type="button" class="appearance-option" data-theme-option="dark" onclick="setSiteTheme('dark')"><span class="swatch"></span>Dark</button>
+                    <button type="button" class="appearance-option" data-theme-option="focus" onclick="setSiteTheme('focus')"><span class="swatch"></span>FocusLab</button>
+                </div>
+            </div>
+
+            <button type="button" class="settings-signout" onclick="signOut()">Sign out</button>
+        </div>
+    </div>
+
+    <div id="avatarEditModal" class="modal-overlay">
+
+        <div class="modal-box">
+
+            <button class="modal-close" onclick="closeAvatarEditModal()">✕</button>
+
+            <div class="modal-icon">
+                <svg viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/>
+                    <path d="M5.5 19.5C6.5 16 9 14.5 12 14.5C15 14.5 17.5 16 18.5 19.5"
+                          stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                </svg>
+            </div>
+
+            <h2>Change Avatar</h2>
+            <p class="modal-description">Pick an avatar or upload your own photo.</p>
+
+            <div class="background-grid signin-avatar-grid" id="avatarEditGrid">
+                <button type="button" class="background-option" data-avatar="images/avatars/avatar1.jpeg" onclick="applyAvatarChoice(this)">
+                    <img src="../images/avatars/avatar1.jpeg" alt="Avatar 1">
+                </button>
+                <button type="button" class="background-option" data-avatar="images/avatars/avatar2.jpeg" onclick="applyAvatarChoice(this)">
+                    <img src="../images/avatars/avatar2.jpeg" alt="Avatar 2">
+                </button>
+                <button type="button" class="background-option" data-avatar="images/avatars/avatar3.jpeg" onclick="applyAvatarChoice(this)">
+                    <img src="../images/avatars/avatar3.jpeg" alt="Avatar 3">
+                </button>
+                <button type="button" class="background-option" data-avatar="images/avatars/avatar4.jpeg" onclick="applyAvatarChoice(this)">
+                    <img src="../images/avatars/avatar4.jpeg" alt="Avatar 4">
+                </button>
+                <button type="button" class="background-option avatar-add-option" id="avatarEditAddBtn" onclick="triggerAvatarEditUpload()">
+                    <span class="avatar-add-icon">+</span>
+                    <span class="avatar-add-label">Add</span>
+                </button>
+            </div>
+
+            <input
+                type="file"
+                id="avatarEditFileInput"
+                accept="image/*"
+                style="display:none"
+                onchange="handleAvatarEditFileSelected(event)"
+            >
+
+        </div>
+
+    </div>
+
+<script src="../music/manifest.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="../script/friends.js"></script>
+<script src="../script/main.js"></script>
+</body>
+</html>

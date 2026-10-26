@@ -1,0 +1,4693 @@
+"use strict";
+
+/* =========================================================
+   FOCUSLAB GLOBAL DATA
+========================================================= */
+
+let tasks = [];
+let currentFilter = "All";
+
+let activeTimerTaskId = null;
+let globalTimerInterval = null;
+
+let breakInterval = null;
+let breakSeconds = 0;
+
+let currentMusicAudioEl = null;
+let musicPositionSaveInterval = null;
+
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function isTasksPage() {
+    return !!document.getElementById("tasksListContainer");
+}
+
+/*
+ * True when the current file lives inside /pages/
+ * (e.g. pages/tasks.html), false for the root index.html.
+ * Used so the same script can resolve "images/..." paths
+ * correctly no matter which page loaded it.
+ */
+function isInPagesFolder() {
+    return window.location.pathname.includes("/pages/");
+}
+
+function getTasks() {
+    try {
+        const stored = localStorage.getItem("focusLab_tasks");
+        const parsed = stored ? JSON.parse(stored) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveTasks() {
+    localStorage.setItem("focusLab_tasks", JSON.stringify(tasks));
+}
+
+function createTaskId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function formatSeconds(seconds) {
+    seconds = Math.max(0, Math.floor(seconds));
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    const mm = String(minutes).padStart(2, "0");
+    const ss = String(secs).padStart(2, "0");
+
+    /*
+     * Under an hour: MM:SS (unchanged).
+     * One hour or more: H:MM:SS — e.g. a 120 minute task shows
+     * 2:00:00 instead of 120:00.
+     */
+    return hours > 0
+        ? hours + ":" + mm + ":" + ss
+        : mm + ":" + ss;
+}
+
+
+/* =========================================================
+   HOURS + MINUTES  (focus time / break time)
+   Times are still STORED as a plain number of minutes (so old
+   tasks keep working). These helpers only change how a time is
+   typed and shown:
+     45 min      -> "45"      unit "min"
+     60 min      -> "1"       unit "hr"
+     90 min      -> "1:30"    unit "hr"
+     120 min     -> "2"       unit "hr"
+     121 min     -> "2:01"    unit "hr"
+========================================================= */
+
+function normalizeDigits(value) {
+    /* Arabic-Indic (٠-٩) and Persian (۰-۹) digits -> 0-9 */
+    return String(value ?? "")
+        .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 1632))
+        .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 1776));
+}
+
+/*
+ * Understands what a person may type in the time box:
+ *   "90"  "1:30"  "2h"  "2 hr"  "1h 30m"  "45 min"
+ * Returns total minutes, or null when it can't be read.
+ */
+function parseTimeText(value) {
+
+    const raw = normalizeDigits(value).trim().toLowerCase();
+
+    if (!raw) return null;
+
+    let match = raw.match(/^(\d+):(\d{1,2})$/);
+
+    if (match) {
+        return Number(match[1]) * 60 + Number(match[2]);
+    }
+
+    match = raw.match(
+        /^(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)(?:\s*(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)?)?$/
+    );
+
+    if (match) {
+        return Number(match[1]) * 60 + Number(match[2] || 0);
+    }
+
+    match = raw.match(
+        /^(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)?$/
+    );
+
+    if (match) {
+        return Number(match[1]);
+    }
+
+    return null;
+}
+
+/* What goes inside the time box: "45", "1", "1:30", "2" ... */
+function formatMinutesForInput(minutes) {
+
+    if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) {
+        return "";
+    }
+
+    if (minutes < 60) {
+        return String(Math.round(minutes * 100) / 100);
+    }
+
+    const total = Math.round(minutes);
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+
+    return rest === 0
+        ? String(hours)
+        : hours + ":" + String(rest).padStart(2, "0");
+}
+
+/* The wording shown on the task row: "45 min", "2 hours", "1 hr 30 min" */
+function formatMinutesLabel(minutes) {
+
+    const value = Number(minutes);
+
+    if (!Number.isFinite(value) || value <= 0) return "";
+
+    if (value < 60) {
+        return (Math.round(value * 100) / 100) + " min";
+    }
+
+    const total = Math.round(value);
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+
+    if (rest === 0) {
+        return hours + (hours === 1 ? " hour" : " hours");
+    }
+
+    return hours + " hr " + rest + " min";
+}
+
+function getAssetPath(path) {
+
+    const fallback =
+        isInPagesFolder()
+            ? "../images/avatars/avatar1.jpeg"
+            : "images/avatars/avatar1.jpeg";
+
+    if (!path) return fallback;
+
+    if (
+        path.startsWith("http://") ||
+        path.startsWith("https://") ||
+        path.startsWith("data:")
+    ) {
+        return path;
+    }
+
+    /*
+     * Normalize whatever was stored ("images/...",
+     * "../images/...", "/images/...") down to a clean
+     * "images/..." form, then prefix correctly for
+     * whichever page is currently resolving it.
+     */
+    let clean = path.replace(/^(\.\.\/)+/, "").replace(/^\//, "");
+
+    if (!clean.startsWith("images/")) {
+        return path;
+    }
+
+    return isInPagesFolder() ? "../" + clean : clean;
+}
+
+
+/* =========================================================
+   MIGRATION
+========================================================= */
+
+function normalizeTasks() {
+
+    let changed = false;
+
+    tasks = tasks.map(task => {
+
+        const normalized = {
+            id: task.id || createTaskId(),
+            text: task.text || "Untitled Task",
+            focusTime:
+                task.focusTime === null ||
+                task.focusTime === undefined ||
+                task.focusTime === ""
+                    ? null
+                    : Number(task.focusTime),
+
+            breakTime:
+                task.breakTime === null ||
+                task.breakTime === undefined ||
+                task.breakTime === ""
+                    ? null
+                    : Number(task.breakTime),
+
+            priority: task.priority || "Normal",
+            completed: Boolean(task.completed),
+
+            timerRunning: Boolean(task.timerRunning),
+            timerEndAt: task.timerEndAt || null,
+            timerFinished: Boolean(task.timerFinished),
+            timerNotified: Boolean(task.timerNotified),
+
+            /*
+             * Remaining seconds kept aside while the
+             * timer is manually paused via the toggle button.
+             */
+            pausedRemaining:
+                task.pausedRemaining === null ||
+                task.pausedRemaining === undefined
+                    ? null
+                    : Number(task.pausedRemaining)
+        };
+
+        /*
+         * Older tasks do not have timer state.
+         * We deliberately DO NOT start old tasks automatically.
+         * Only newly created tasks start automatically.
+         */
+
+        if (
+            normalized.timerRunning &&
+            normalized.timerEndAt &&
+            Date.now() >= normalized.timerEndAt
+        ) {
+            normalized.timerRunning = false;
+            normalized.timerEndAt = null;
+            normalized.timerFinished = true;
+        }
+
+        if (
+            normalized.id !== task.id ||
+            normalized.timerRunning !== Boolean(task.timerRunning)
+        ) {
+            changed = true;
+        }
+
+        return normalized;
+    });
+
+    if (changed) {
+        saveTasks();
+    }
+}
+
+
+/* =========================================================
+   USER / AVATAR
+========================================================= */
+
+function loadUserInfo() {
+
+    const firstName =
+        localStorage.getItem("focusLab_firstName") || "Focus";
+
+    const lastName =
+        localStorage.getItem("focusLab_lastName") || "User";
+
+    const avatar =
+        localStorage.getItem("focusLab_avatarSrc") ||
+        "images/avatars/avatar1.jpeg";
+
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    const homeName = document.getElementById("homeUserName");
+    if (homeName) {
+        homeName.textContent = fullName;
+    }
+
+    const homeAvatar = document.getElementById("homeAvatar");
+    if (homeAvatar) {
+        homeAvatar.src = getAssetPath(avatar);
+    }
+
+    const sidebarName = document.getElementById("sidebar-user-name");
+    if (sidebarName) {
+        sidebarName.textContent = fullName;
+    }
+
+    const sidebarAvatar = document.getElementById("sidebar-avatar");
+    if (sidebarAvatar) {
+        sidebarAvatar.src = getAssetPath(avatar);
+    }
+
+    const headerAvatar = document.getElementById("user-avatar-display");
+    if (headerAvatar) {
+        headerAvatar.src = getAssetPath(avatar);
+    }
+}
+
+
+/* =========================================================
+   SIGN IN / HOME — now ONE file (index.html).
+   Signing in no longer navigates anywhere: it just swaps
+   which section of the page is visible.
+========================================================= */
+
+let selectedSigninAvatar = null;
+
+function isSignedIn() {
+    return localStorage.getItem("focusLab_signedIn") === "true";
+}
+
+function showHomeView() {
+    document.documentElement.classList.remove("is-guest");
+    document.documentElement.classList.add("is-signed-in");
+}
+
+function showSigninView() {
+    document.documentElement.classList.remove("is-signed-in");
+    document.documentElement.classList.add("is-guest");
+}
+
+function applyAuthView() {
+
+    /* Only relevant on the merged index.html page. */
+    if (!document.getElementById("signinView")) return;
+
+    if (isSignedIn()) {
+        showHomeView();
+    } else {
+        showSigninView();
+    }
+}
+
+function selectSigninAvatar(button) {
+
+    document
+        .querySelectorAll("#signinAvatarGrid .background-option")
+        .forEach(option => option.classList.remove("selected"));
+
+    button.classList.add("selected");
+    selectedSigninAvatar = button.dataset.avatar;
+}
+
+
+/* =========================================================
+   AVATAR PHOTO UPLOAD
+   Lets the person pick their own photo instead of one of the
+   four built-in code-drawn avatars. The photo is cropped to a
+   square and downsized on a canvas, then kept as a small data
+   URL — so it works with the exact same storage key
+   (focusLab_avatarSrc) as the built-in avatars.
+========================================================= */
+
+const AVATAR_PHOTO_SIZE = 240;
+
+function processAvatarFile(file) {
+
+    return new Promise((resolve, reject) => {
+
+        const reader = new FileReader();
+
+        reader.onload = () => {
+
+            const img = new Image();
+
+            img.onload = () => {
+
+                const size = AVATAR_PHOTO_SIZE;
+                const canvas = document.createElement("canvas");
+
+                canvas.width = size;
+                canvas.height = size;
+
+                const ctx = canvas.getContext("2d");
+
+                const minSide = Math.min(img.width, img.height);
+                const sx = (img.width - minSide) / 2;
+                const sy = (img.height - minSide) / 2;
+
+                ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+
+                resolve(canvas.toDataURL("image/jpeg", 0.87));
+            };
+
+            img.onerror = () => reject(new Error("Could not read that image."));
+
+            img.src = reader.result;
+        };
+
+        reader.onerror = () => reject(new Error("Could not read that file."));
+
+        reader.readAsDataURL(file);
+    });
+}
+
+/* --- Used inside the sign-in avatar grid (5th "Add" tile) --- */
+
+function triggerSigninAvatarUpload() {
+
+    const input = document.getElementById("signinAvatarFileInput");
+
+    if (input) input.click();
+}
+
+async function handleSigninAvatarFileSelected(event) {
+
+    const file = event.target.files && event.target.files[0];
+
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+        alert("Please choose an image file.");
+        return;
+    }
+
+    try {
+
+        const dataUrl = await processAvatarFile(file);
+
+        const addButton = document.getElementById("signinAvatarAddBtn");
+
+        if (addButton) {
+
+            addButton.innerHTML = `<img src="${dataUrl}" alt="Your photo">`;
+            addButton.dataset.avatar = dataUrl;
+
+            selectSigninAvatar(addButton);
+        }
+
+    } catch {
+        alert("Couldn't use that photo. Please try another image.");
+    }
+}
+
+/* --- Used for changing the avatar from inside the app
+       (click your avatar in the header or sidebar) --- */
+
+function openAvatarEditModal() {
+
+    /* Only available once signed in. */
+    if (!isSignedIn()) return;
+
+    const modal = document.getElementById("avatarEditModal");
+
+    if (modal) {
+        modal.classList.add("active");
+    }
+
+    markSelectedAvatarInEditGrid();
+}
+
+function closeAvatarEditModal() {
+
+    const modal = document.getElementById("avatarEditModal");
+
+    if (modal) {
+        modal.classList.remove("active");
+    }
+}
+
+function markSelectedAvatarInEditGrid() {
+
+    const current = localStorage.getItem("focusLab_avatarSrc") || "";
+
+    document
+        .querySelectorAll("#avatarEditGrid .background-option[data-avatar]")
+        .forEach(button => {
+            button.classList.toggle("selected", button.dataset.avatar === current);
+        });
+
+    const addButton = document.getElementById("avatarEditAddBtn");
+
+    if (!addButton) return;
+
+    if (current.startsWith("data:")) {
+
+        addButton.innerHTML = `<img src="${current}" alt="Your photo">`;
+        addButton.classList.add("selected");
+
+    } else {
+
+        addButton.innerHTML = `
+            <span class="avatar-add-icon">+</span>
+            <span class="avatar-add-label">Add</span>
+        `;
+
+        addButton.classList.remove("selected");
+    }
+}
+
+function applyAvatarChoice(button) {
+
+    const avatar = button.dataset.avatar;
+
+    if (!avatar) return;
+
+    localStorage.setItem("focusLab_avatarSrc", avatar);
+
+    loadUserInfo();
+
+    closeAvatarEditModal();
+}
+
+function triggerAvatarEditUpload() {
+
+    const input = document.getElementById("avatarEditFileInput");
+
+    if (input) input.click();
+}
+
+async function handleAvatarEditFileSelected(event) {
+
+    const file = event.target.files && event.target.files[0];
+
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+        alert("Please choose an image file.");
+        return;
+    }
+
+    try {
+
+        const dataUrl = await processAvatarFile(file);
+
+        localStorage.setItem("focusLab_avatarSrc", dataUrl);
+
+        loadUserInfo();
+
+        closeAvatarEditModal();
+
+    } catch {
+        alert("Couldn't use that photo. Please try another image.");
+    }
+}
+
+function submitSignin() {
+
+    const firstName = document.getElementById("signinFirstName")?.value.trim();
+    const lastName = document.getElementById("signinLastName")?.value.trim();
+    const email = document.getElementById("signinEmail")?.value.trim();
+    const password = document.getElementById("signinPassword")?.value.trim();
+    const errorText = document.getElementById("signinError");
+
+    if (!firstName || !lastName || !email || !password || !selectedSigninAvatar) {
+
+        if (errorText) {
+            errorText.classList.add("active");
+        }
+
+        return;
+    }
+
+    if (errorText) {
+        errorText.classList.remove("active");
+    }
+
+    localStorage.setItem("focusLab_firstName", firstName);
+    localStorage.setItem("focusLab_lastName", lastName);
+    localStorage.setItem("focusLab_email", email);
+    localStorage.setItem("focusLab_avatarSrc", selectedSigninAvatar);
+    localStorage.setItem("focusLab_signedIn", "true");
+
+    showHomeView();
+    loadUserInfo();
+}
+
+function signOut() {
+
+    localStorage.removeItem("focusLab_signedIn");
+
+    closeSettingsModal();
+
+    try { stopMusic(); } catch { /* nothing was playing */ }
+
+    if (document.getElementById("signinView")) {
+        /* index.html: swap to the sign-in form. */
+        showSigninView();
+    } else {
+        /* Any other page: go back to index.html, which shows the sign-in form. */
+        window.location.href = isInPagesFolder() ? "../index.html" : "index.html";
+    }
+}
+
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+function toggleSidebar() {
+
+    const sidebar = document.getElementById("sidebar");
+
+    if (!sidebar) return;
+
+    if (window.innerWidth <= 800) {
+        sidebar.classList.toggle("open");
+    } else {
+
+        sidebar.classList.toggle("closed");
+
+        /*
+         * Desktop only: when the sidebar is closed, the main
+         * board + footer smoothly expand to fill the freed-up
+         * space (via the ".sidebar-collapsed" CSS rules).
+         * Reopening the sidebar removes the class, so the
+         * same transition plays in reverse.
+         */
+        const appScreen = document.getElementById("app-screen");
+
+        if (appScreen) {
+            appScreen.classList.toggle(
+                "sidebar-collapsed",
+                sidebar.classList.contains("closed")
+            );
+        }
+    }
+}
+
+
+/* =========================================================
+   SETTINGS
+   A "Settings" button (gear) in the burger menu opens a small
+   window with two switches:
+     - Sound: mutes / unmutes ALL the site's sound (the focus
+       music and the YouTube videos). Remembered between pages.
+     - Full screen: makes the whole browser page full-screen
+       (for phones/tablets that have no F11 key).
+========================================================= */
+
+function isSoundMuted() {
+    return localStorage.getItem("focusLab_soundMuted") === "true";
+}
+
+/* Pushes the current mute state into whatever is playing now. */
+function applySoundState() {
+
+    const muted = isSoundMuted();
+
+    if (currentMusicAudioEl) {
+        currentMusicAudioEl.muted = muted;
+    }
+
+    if (youtubePlayer && typeof youtubePlayer.mute === "function") {
+
+        try {
+            if (muted) {
+                youtubePlayer.mute();
+            } else {
+                youtubePlayer.unMute();
+            }
+        } catch {
+            /* The player is not ready yet — it applies the state itself when it is. */
+        }
+    }
+
+    updateSettingsUI();
+}
+
+function toggleSiteSound() {
+
+    localStorage.setItem("focusLab_soundMuted", String(!isSoundMuted()));
+
+    applySoundState();
+}
+
+function getFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+/*
+ * Browsers only allow full-screen for the whole page on desktop,
+ * Android and iPad. iPhone Safari does not offer it at all — there
+ * the switch is greyed out with a short note.
+ */
+function canUseFullscreen() {
+
+    const el = document.documentElement;
+
+    return Boolean(el.requestFullscreen || el.webkitRequestFullscreen);
+}
+
+function toggleSiteFullscreen() {
+
+    if (!canUseFullscreen()) return;
+
+    try {
+
+        let result;
+
+        if (getFullscreenElement()) {
+
+            result = document.exitFullscreen
+                ? document.exitFullscreen()
+                : document.webkitExitFullscreen();
+
+        } else {
+
+            const el = document.documentElement;
+
+            result = el.requestFullscreen
+                ? el.requestFullscreen()
+                : el.webkitRequestFullscreen();
+        }
+
+        if (result && typeof result.catch === "function") {
+            result.catch(() => {});
+        }
+
+    } catch {
+        /* Refused by the browser — nothing to do. */
+    }
+}
+
+function updateSettingsUI() {
+
+    updateThemeUI();
+
+    const muted = isSoundMuted();
+
+    const soundButton = document.getElementById("settingsSoundBtn");
+    const soundHint = document.getElementById("settingsSoundHint");
+
+    if (soundButton) {
+        soundButton.classList.toggle("on", !muted);
+        soundButton.setAttribute("aria-checked", String(!muted));
+    }
+
+    if (soundHint) {
+        soundHint.textContent = muted ? "Sound is off" : "Sound is on";
+    }
+
+    const fullscreenButton = document.getElementById("settingsFullscreenBtn");
+    const fullscreenHint = document.getElementById("settingsFullscreenHint");
+
+    if (!fullscreenButton) return;
+
+    if (!canUseFullscreen()) {
+
+        fullscreenButton.disabled = true;
+        fullscreenButton.classList.remove("on");
+        fullscreenButton.setAttribute("aria-checked", "false");
+
+        if (fullscreenHint) {
+            fullscreenHint.textContent = "Not supported by this browser (iPhone Safari has no full screen).";
+        }
+
+        return;
+    }
+
+    const isFullscreen = Boolean(getFullscreenElement());
+
+    fullscreenButton.disabled = false;
+    fullscreenButton.classList.toggle("on", isFullscreen);
+    fullscreenButton.setAttribute("aria-checked", String(isFullscreen));
+
+    if (fullscreenHint) {
+        fullscreenHint.textContent = isFullscreen
+            ? "Full screen is on"
+            : "Fill the whole screen with the site";
+    }
+}
+
+function openSettingsModal() {
+
+    const modal = document.getElementById("settingsModal");
+
+    if (!modal) return;
+
+    /* On phones, tuck the menu away behind the window. */
+    const sidebar = document.getElementById("sidebar");
+
+    if (sidebar && window.innerWidth <= 800) {
+        sidebar.classList.remove("open");
+    }
+
+    updateSettingsUI();
+
+    modal.classList.add("active");
+}
+
+function closeSettingsModal() {
+
+    const modal = document.getElementById("settingsModal");
+
+    if (modal) {
+        modal.classList.remove("active");
+    }
+}
+
+/* Keeps the full-screen switch correct when full-screen is
+   entered / left in any way (the switch, Esc, F11 ...). */
+["fullscreenchange", "webkitfullscreenchange"].forEach(name =>
+    document.addEventListener(name, updateSettingsUI)
+);
+
+
+/* =========================================================
+   ADD TASK MODAL
+========================================================= */
+
+function openAddTaskModal() {
+
+    const modal = document.getElementById("addTaskModal");
+
+    if (!modal) return;
+
+    modal.classList.add("active");
+
+    setTimeout(() => {
+        const input = document.getElementById("taskTextInput");
+        if (input) input.focus();
+    }, 100);
+}
+
+function closeAddTaskModal() {
+
+    const modal = document.getElementById("addTaskModal");
+
+    if (modal) {
+        modal.classList.remove("active");
+    }
+}
+
+/*
+ * The three priority choices (Normal / Important / Study) are
+ * bordered buttons. The chosen one is kept in the hidden
+ * #priorityInput, so everything that reads the priority still
+ * works exactly as before.
+ */
+function selectPriority(value) {
+
+    const input = document.getElementById("priorityInput");
+
+    if (input) {
+        input.value = value;
+    }
+
+    document
+        .querySelectorAll("#priorityOptions .priority-chip")
+        .forEach(chip => {
+            chip.classList.toggle("active", chip.dataset.priority === value);
+        });
+}
+
+
+/* =========================================================
+   CREATE TASK
+   TIMER STARTS AUTOMATICALLY
+========================================================= */
+
+function createTask() {
+
+    const textInput = document.getElementById("taskTextInput");
+    const focusInput = document.getElementById("focusTimeInput");
+    const breakInput = document.getElementById("breakTimeInput");
+    const priorityInput = document.getElementById("priorityInput");
+
+    if (!textInput) return;
+
+    const text = textInput.value.trim();
+
+    if (!text) {
+        textInput.focus();
+        return;
+    }
+
+    /*
+     * The time boxes accept minutes ("90"), hours and minutes
+     * ("1:30", "2h") — getTimeInputMinutes turns any of them into
+     * a plain number of minutes.
+     */
+    const focusValue = getTimeInputMinutes(focusInput);
+
+    const breakValue = getTimeInputMinutes(breakInput);
+
+    const focusTime =
+        focusValue !== null && Number.isFinite(focusValue) && focusValue > 0
+            ? focusValue
+            : null;
+
+    const breakTime =
+        breakValue !== null && Number.isFinite(breakValue) && breakValue > 0
+            ? breakValue
+            : null;
+
+    const newTask = {
+
+        id: createTaskId(),
+
+        text: text,
+
+        focusTime: focusTime,
+
+        breakTime: breakTime,
+
+        priority:
+            priorityInput?.value ||
+            "Normal",
+
+        completed: false,
+
+        /*
+         * IMPORTANT:
+         * The timer starts at the exact moment
+         * the task is created.
+         */
+        timerRunning: Boolean(focusTime),
+
+        timerEndAt:
+            focusTime
+                ? Date.now() + focusTime * 60 * 1000
+                : null,
+
+        timerFinished: false,
+
+        timerNotified: false,
+
+        pausedRemaining: null
+    };
+
+    tasks.unshift(newTask);
+
+    saveTasks();
+
+    closeAddTaskModal();
+
+    clearTaskForm();
+
+    loadTasks();
+
+    if (newTask.timerRunning) {
+        startGlobalTimerUpdater();
+    }
+}
+
+function clearTaskForm() {
+
+    const taskInput = document.getElementById("taskTextInput");
+    const focusInput = document.getElementById("focusTimeInput");
+    const breakInput = document.getElementById("breakTimeInput");
+
+    if (taskInput) taskInput.value = "";
+    if (focusInput) {
+        focusInput.value = "";
+        focusInput.dataset.normalized = "0";
+        delete focusInput.dataset.minutes;
+        updateTimeInputUnit(focusInput);
+    }
+
+    if (breakInput) {
+        breakInput.value = "";
+        breakInput.dataset.normalized = "0";
+        delete breakInput.dataset.minutes;
+        updateTimeInputUnit(breakInput);
+    }
+
+    selectPriority("Normal");
+}
+
+
+/* =========================================================
+   TIME BOXES (Focus time / Break) — hours & minutes
+   The two boxes in the "Create New Task" window. While the
+   number is under 60 it is minutes ("45" + "min"). From 60 up it
+   turns into hours: "1" + "hr" at 60, then 1:01, 1:02 ... 1:59,
+   then "2" + "hr" at 120, and so on. You can step with the
+   little arrows (hold to keep going), the Up/Down keys, or just
+   type: "90", "1:30", "2h", "1h 30m" all work.
+   Nothing about the layout changes — the boxes look the same;
+   only the small arrows' styling is added from here.
+========================================================= */
+
+const TIME_INPUT_IDS = ["focusTimeInput", "breakTimeInput"];
+
+const TIME_STEPPER_ARROW_UP = `
+    <svg viewBox="0 0 10 10" width="8" height="8" fill="none">
+        <path d="M2 6.5L5 3.5L8 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+`;
+
+const TIME_STEPPER_ARROW_DOWN = `
+    <svg viewBox="0 0 10 10" width="8" height="8" fill="none">
+        <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+`;
+
+function ensureTimeInputStyles() {
+
+    if (document.getElementById("focusLabTimeInputStyles")) return;
+
+    const style = document.createElement("style");
+
+    style.id = "focusLabTimeInputStyles";
+
+    style.textContent = `
+        .input-with-unit input[data-time-input] {
+            padding-right: 68px;
+        }
+
+        .time-stepper {
+            position: absolute;
+            right: 42px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            opacity: 0;
+            transition: opacity .2s;
+        }
+
+        .input-with-unit:hover .time-stepper,
+        .input-with-unit:focus-within .time-stepper {
+            opacity: 1;
+        }
+
+        .time-stepper button {
+            width: 20px;
+            height: 15px;
+            border-radius: 5px;
+            display: grid;
+            place-items: center;
+            background: rgba(255,255,255,.06);
+            color: #94a3b8;
+            cursor: pointer;
+            transition: .15s;
+            touch-action: manipulation;
+        }
+
+        .time-stepper button:hover {
+            background: rgba(59,130,246,.2);
+            color: #60a5fa;
+        }
+
+        /* Phones have no hover and no spinner — people just type. */
+        @media (hover: none) {
+            .time-stepper {
+                display: none;
+            }
+        }
+    `;
+
+    document.head.appendChild(style);
+}
+
+/*
+ * The real number of minutes in a time box. Once the box has been
+ * tidied up ("1" next to "hr"), the exact minutes are kept aside,
+ * because the text "1" alone would be read as one minute.
+ */
+function getTimeInputMinutes(input) {
+
+    if (!input) return null;
+
+    if (input.dataset.normalized === "1" && input.dataset.minutes) {
+        return Number(input.dataset.minutes);
+    }
+
+    return parseTimeText(input.value);
+}
+
+function updateTimeInputUnit(input) {
+
+    const wrapper = input.parentElement;
+
+    const unit = wrapper
+        ? wrapper.querySelector(":scope > span")
+        : null;
+
+    if (!unit) return;
+
+    const text = normalizeDigits(input.value).trim();
+    const minutes = getTimeInputMinutes(input);
+
+    /*
+     * Plain digits while typing still mean minutes, so the unit
+     * only flips to "hr" once the box has been tidied up (on
+     * leaving the box, or with the arrows) or the person typed
+     * the hours themselves ("1:30", "2h").
+     */
+    const meansHours =
+        minutes !== null &&
+        minutes >= 60 &&
+        (input.dataset.normalized === "1" || /[:h]/.test(text));
+
+    unit.textContent = meansHours ? "hr" : "min";
+}
+
+function setTimeInputMinutes(input, minutes) {
+
+    input.value = formatMinutesForInput(minutes);
+    input.dataset.normalized = "1";
+    input.dataset.minutes = String(minutes);
+
+    updateTimeInputUnit(input);
+}
+
+function normalizeTimeInput(input) {
+
+    const text = input.value.trim();
+
+    if (!text) {
+        input.dataset.normalized = "0";
+        updateTimeInputUnit(input);
+        return;
+    }
+
+    const minutes = getTimeInputMinutes(input);
+
+    if (minutes === null) {
+        input.value = "";
+        input.dataset.normalized = "0";
+        updateTimeInputUnit(input);
+        return;
+    }
+
+    setTimeInputMinutes(input, minutes);
+}
+
+function stepTimeInput(input, delta) {
+
+    const current = getTimeInputMinutes(input);
+
+    const base = current === null ? 0 : Math.floor(current);
+
+    setTimeInputMinutes(input, Math.max(0, base + delta));
+}
+
+function setupTimeInput(input) {
+
+    if (!input || input.dataset.timeInput) return;
+
+    const wrapper = input.parentElement;
+
+    input.dataset.timeInput = "1";
+    input.dataset.normalized = "0";
+
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    input.removeAttribute("min");
+
+    input.addEventListener("input", () => {
+        input.dataset.normalized = "0";
+        updateTimeInputUnit(input);
+    });
+
+    input.addEventListener("blur", () => normalizeTimeInput(input));
+
+    input.addEventListener("focus", () => {
+        setTimeout(() => {
+            try { input.select(); } catch {}
+        }, 0);
+    });
+
+    input.addEventListener("keydown", event => {
+
+        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+
+            event.preventDefault();
+
+            const size = event.shiftKey ? 10 : 1;
+
+            stepTimeInput(input, event.key === "ArrowUp" ? size : -size);
+
+        } else if (event.key === "Enter") {
+
+            normalizeTimeInput(input);
+        }
+    });
+
+    if (!wrapper || wrapper.querySelector(".time-stepper")) return;
+
+    const stepper = document.createElement("div");
+
+    stepper.className = "time-stepper";
+
+    stepper.innerHTML = `
+        <button type="button" tabindex="-1" data-dir="1" aria-label="More time">${TIME_STEPPER_ARROW_UP}</button>
+        <button type="button" tabindex="-1" data-dir="-1" aria-label="Less time">${TIME_STEPPER_ARROW_DOWN}</button>
+    `;
+
+    stepper.querySelectorAll("button").forEach(button => {
+
+        const direction = Number(button.dataset.dir);
+
+        let delayTimer = null;
+        let repeatTimer = null;
+        let ticks = 0;
+
+        const stop = () => {
+            clearTimeout(delayTimer);
+            clearInterval(repeatTimer);
+            delayTimer = null;
+            repeatTimer = null;
+            ticks = 0;
+        };
+
+        /* Keep focus in the box while the arrows are used. */
+        button.addEventListener("mousedown", event => event.preventDefault());
+
+        button.addEventListener("pointerdown", event => {
+
+            event.preventDefault();
+
+            stop();
+
+            stepTimeInput(input, direction);
+
+            /* Hold the arrow to keep going — faster after a moment. */
+            delayTimer = setTimeout(() => {
+
+                repeatTimer = setInterval(() => {
+
+                    ticks++;
+
+                    stepTimeInput(input, direction * (ticks > 25 ? 5 : 1));
+
+                }, 70);
+
+            }, 400);
+        });
+
+        ["pointerup", "pointerleave", "pointercancel"].forEach(name =>
+            button.addEventListener(name, stop)
+        );
+    });
+
+    wrapper.appendChild(stepper);
+}
+
+function initTimeInputs() {
+
+    ensureTimeInputStyles();
+
+    TIME_INPUT_IDS.forEach(id =>
+        setupTimeInput(document.getElementById(id))
+    );
+}
+
+
+/* =========================================================
+   TIMER TOGGLE ICONS
+   A simple round control: a triangle to play,
+   two bars to pause — used for both task timers
+   and the music player.
+========================================================= */
+
+const PLAY_ICON_SVG = `
+    <svg viewBox="0 0 24 24" fill="none">
+        <path d="M8 5.5V18.5L19 12L8 5.5Z"
+              stroke="currentColor" stroke-width="1.6"
+              stroke-linejoin="round" fill="currentColor"/>
+    </svg>
+`;
+
+const PAUSE_ICON_SVG = `
+    <svg viewBox="0 0 24 24" fill="none">
+        <path d="M8 5.5V18.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M16 5.5V18.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+`;
+
+
+/* =========================================================
+   LOAD TASKS
+========================================================= */
+
+/*
+ * Builds one task row exactly as it appears in the Tasks
+ * list — name, priority, focus/break labels, the timer
+ * button + play/pause toggle, the complete button, and the
+ * delete button. Shared by the Tasks page and by the "task
+ * you're working on" card pinned inside the video player, so
+ * both are always identical and both stay in sync through the
+ * same update functions (updateAllTaskTimerButtons, etc.).
+ */
+function buildTaskItemElement(task, targetTaskId = null) {
+
+    const item = document.createElement("div");
+
+    item.className = "task-item";
+
+    item.dataset.taskId = task.id;
+
+    if (task.completed) {
+        item.classList.add("completed");
+    }
+
+    if (targetTaskId === task.id) {
+        item.classList.add("task-search-highlight");
+    }
+
+    const priorityClass =
+        task.priority === "Important"
+            ? "important"
+            : task.priority === "Study"
+                ? "study"
+                : "";
+
+    let timerHTML = "";
+
+    if (
+        task.focusTime &&
+        task.focusTime > 0
+    ) {
+
+        const remaining =
+            getTaskRemainingSeconds(task);
+
+        let timerText =
+            formatSeconds(remaining);
+
+        let timerClass = "";
+
+        if (task.timerRunning) {
+            timerClass = "timer-running";
+        }
+
+        if (task.timerFinished) {
+            timerClass = "timer-finished";
+            timerText = "00:00";
+        }
+
+        timerHTML = `
+            <button
+                class="task-timer-btn ${timerClass}"
+                onclick="handleTimerButtonClick('${task.id}')"
+                ${task.completed ? "disabled" : ""}
+            >
+                ${timerText}
+            </button>
+
+            <button
+                class="task-timer-toggle-btn"
+                onclick="toggleTaskTimerRunning('${task.id}')"
+                aria-label="${task.timerRunning ? "Pause timer" : "Start timer"}"
+                ${task.completed || task.timerFinished ? "disabled" : ""}
+            >
+                ${task.timerRunning ? PAUSE_ICON_SVG : PLAY_ICON_SVG}
+            </button>
+        `;
+    }
+
+    item.innerHTML = `
+
+        <button
+            class="task-check-button"
+            onclick="toggleTaskDone('${task.id}')"
+            aria-label="Complete task"
+        >
+            <svg viewBox="0 0 24 24" fill="none">
+                <path
+                    d="M6 12.5L10 16.5L18 8"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                />
+            </svg>
+        </button>
+
+        <div class="task-info">
+
+            <div class="task-name">
+                ${escapeHTML(task.text)}
+            </div>
+
+            <div class="task-meta">
+
+                <span class="task-priority ${priorityClass}">
+                    ${escapeHTML(task.priority)}
+                </span>
+
+                ${
+                    task.focusTime
+                        ? `<span class="task-focus-label">
+                            ${formatMinutesLabel(task.focusTime)} focus
+                           </span>`
+                        : ""
+                }
+
+                ${
+                    task.breakTime
+                        ? `<span class="task-focus-label">
+                            ${formatMinutesLabel(task.breakTime)} break
+                           </span>`
+                        : ""
+                }
+
+            </div>
+
+        </div>
+
+        ${timerHTML}
+
+        <button
+            class="task-delete-btn"
+            onclick="deleteTask('${task.id}')"
+            aria-label="Delete task"
+        >
+            <svg viewBox="0 0 24 24" fill="none">
+                <path
+                    d="M4 7H20"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                />
+                <path
+                    d="M9 7V5H15V7"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                />
+                <path
+                    d="M7 7L8 20H16L17 7"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                />
+                <path
+                    d="M10 11V16M14 11V16"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                />
+            </svg>
+        </button>
+    `;
+
+    return item;
+}
+
+/* The "Total" box next to the Delete All / Add Task buttons —
+   always the number of ALL tasks, whatever is being shown. */
+function updateTotalTasksCount() {
+
+    const total = document.getElementById("tasksTotalCount");
+
+    if (total) {
+        total.textContent = String(tasks.length);
+    }
+}
+
+function loadTasks(targetTaskId = null) {
+
+    if (!isTasksPage()) return;
+
+    const container =
+        document.getElementById("tasksListContainer");
+
+    const empty =
+        document.getElementById("emptyTasksState");
+
+    const countText =
+        document.getElementById("tasksCountText");
+
+    if (!container) return;
+
+    updateTotalTasksCount();
+
+    let visibleTasks = tasks.filter(task => {
+
+        if (currentFilter === "All") return true;
+
+        if (currentFilter === "Completed") return task.completed === true;
+
+        return task.priority === currentFilter;
+    });
+
+    /*
+     * Search from Home:
+     * selected task goes FIRST.
+     */
+    if (targetTaskId) {
+
+        const targetIndex =
+            visibleTasks.findIndex(
+                task => task.id === targetTaskId
+            );
+
+        if (targetIndex > -1) {
+
+            const targetTask =
+                visibleTasks.splice(targetIndex, 1)[0];
+
+            visibleTasks.unshift(targetTask);
+        }
+    }
+
+    container.innerHTML = "";
+
+    if (countText) {
+        countText.textContent =
+            `${visibleTasks.length} ${
+                visibleTasks.length === 1
+                    ? "task"
+                    : "tasks"
+            }`;
+    }
+
+    if (!visibleTasks.length) {
+
+        if (empty) {
+            empty.classList.add("active");
+        }
+
+        return;
+
+    } else {
+
+        if (empty) {
+            empty.classList.remove("active");
+        }
+    }
+
+    visibleTasks.forEach(task => {
+
+        const item = buildTaskItemElement(task, targetTaskId);
+
+        container.appendChild(item);
+    });
+
+    updateAllTaskTimerButtons();
+
+    if (targetTaskId) {
+
+        setTimeout(() => {
+
+            const target =
+                container.querySelector(
+                    `[data-task-id="${targetTaskId}"]`
+                );
+
+            if (target) {
+                target.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center"
+                });
+            }
+
+        }, 100);
+    }
+}
+
+
+/* =========================================================
+   TIMER
+========================================================= */
+
+function getTaskRemainingSeconds(task) {
+
+    if (!task) return 0;
+
+    if (
+        task.timerRunning &&
+        task.timerEndAt
+    ) {
+        return Math.max(
+            0,
+            Math.ceil(
+                (task.timerEndAt - Date.now()) / 1000
+            )
+        );
+    }
+
+    if (task.timerFinished) {
+        return 0;
+    }
+
+    if (
+        task.pausedRemaining !== null &&
+        task.pausedRemaining !== undefined
+    ) {
+        return task.pausedRemaining;
+    }
+
+    if (
+        task.focusTime &&
+        task.focusTime > 0
+    ) {
+        return task.focusTime * 60;
+    }
+
+    return 0;
+}
+
+
+function startGlobalTimerUpdater() {
+
+    if (globalTimerInterval) return;
+
+    globalTimerInterval =
+        setInterval(() => {
+
+            updateAllTaskTimers();
+
+        }, 250);
+}
+
+
+function stopGlobalTimerUpdaterIfUnused() {
+
+    const running =
+        tasks.some(
+            task =>
+                task.timerRunning &&
+                task.timerEndAt
+        );
+
+    if (!running && globalTimerInterval) {
+
+        clearInterval(globalTimerInterval);
+
+        globalTimerInterval = null;
+    }
+}
+
+
+function updateAllTaskTimers() {
+
+    let changed = false;
+
+    tasks.forEach(task => {
+
+        if (
+            !task.timerRunning ||
+            !task.timerEndAt
+        ) {
+            return;
+        }
+
+        const remaining =
+            getTaskRemainingSeconds(task);
+
+        if (remaining <= 0) {
+
+            task.timerRunning = false;
+            task.timerEndAt = null;
+            task.timerFinished = true;
+            task.pausedRemaining = null;
+
+            changed = true;
+
+            /*
+             * Show failure animation ONLY ONCE.
+             */
+            if (!task.timerNotified && !task.completed) {
+
+                task.timerNotified = true;
+
+                showTaskResultAnimation(
+                    "failure",
+                    task
+                );
+            }
+        }
+    });
+
+    if (changed) {
+        saveTasks();
+    }
+
+    updateAllTaskTimerButtons();
+    updateOpenTimerDisplay();
+
+    stopGlobalTimerUpdaterIfUnused();
+}
+
+
+function updateAllTaskTimerButtons() {
+
+    tasks.forEach(task => {
+
+        const item =
+            document.querySelector(
+                `.task-item[data-task-id="${task.id}"]`
+            );
+
+        if (!item) return;
+
+        const button =
+            item.querySelector(".task-timer-btn");
+
+        if (button) {
+
+            const remaining =
+                getTaskRemainingSeconds(task);
+
+            button.textContent =
+                formatSeconds(remaining);
+
+            button.classList.toggle(
+                "timer-running",
+                Boolean(task.timerRunning)
+            );
+
+            button.classList.toggle(
+                "timer-finished",
+                Boolean(task.timerFinished)
+            );
+        }
+
+        const toggleButton =
+            item.querySelector(".task-timer-toggle-btn");
+
+        if (toggleButton) {
+
+            toggleButton.innerHTML =
+                task.timerRunning
+                    ? PAUSE_ICON_SVG
+                    : PLAY_ICON_SVG;
+
+            toggleButton.disabled =
+                Boolean(task.completed || task.timerFinished);
+        }
+    });
+}
+
+
+/* =========================================================
+   TIMER TOGGLE BUTTON
+   Starts / pauses the countdown by hand.
+   Does nothing else.
+========================================================= */
+
+function toggleTaskTimerRunning(taskId) {
+
+    const task =
+        tasks.find(
+            item => item.id === taskId
+        );
+
+    if (
+        !task ||
+        task.completed ||
+        task.timerFinished ||
+        !task.focusTime
+    ) {
+        return;
+    }
+
+    if (task.timerRunning) {
+
+        /*
+         * PAUSE: freeze the remaining time.
+         */
+        const remaining =
+            getTaskRemainingSeconds(task);
+
+        task.timerRunning = false;
+        task.timerEndAt = null;
+        task.pausedRemaining = remaining;
+
+    } else {
+
+        /*
+         * RESUME / START from where it left off.
+         */
+        const remaining =
+            task.pausedRemaining !== null &&
+            task.pausedRemaining !== undefined
+                ? task.pausedRemaining
+                : task.focusTime * 60;
+
+        task.timerRunning = true;
+        task.timerEndAt = Date.now() + remaining * 1000;
+        task.pausedRemaining = null;
+
+        startGlobalTimerUpdater();
+    }
+
+    saveTasks();
+
+    updateAllTaskTimerButtons();
+
+    if (activeTimerTaskId === taskId) {
+        updateOpenTimerDisplay();
+    }
+}
+
+
+/* =========================================================
+   TIMER BUTTON
+   Clicking it only OPENS the timer.
+   It does NOT start/restart it.
+========================================================= */
+
+function handleTimerButtonClick(taskId) {
+
+    const task =
+        tasks.find(
+            item => item.id === taskId
+        );
+
+    if (!task) return;
+
+    openFocusTimer(taskId);
+}
+
+
+function openFocusTimer(taskId) {
+
+    const task =
+        tasks.find(
+            item => item.id === taskId
+        );
+
+    if (!task) return;
+
+    activeTimerTaskId = taskId;
+
+    const modal =
+        document.getElementById("focusTimerModal");
+
+    const title =
+        document.getElementById("timerTaskTitle");
+
+    const status =
+        document.getElementById("timerStatusText");
+
+    if (title) {
+        title.textContent = task.text;
+    }
+
+    if (status) {
+
+        if (task.completed) {
+            status.textContent = "Task completed.";
+        } else if (task.timerFinished) {
+            status.textContent = "Time is up.";
+        } else if (!task.timerRunning) {
+            status.textContent = "Timer is paused.";
+        } else {
+            status.textContent =
+                "Your timer is running automatically.";
+        }
+    }
+
+    if (modal) {
+        modal.classList.add("active");
+    }
+
+    updateOpenTimerDisplay();
+}
+
+
+function updateOpenTimerDisplay() {
+
+    if (!activeTimerTaskId) return;
+
+    const task =
+        tasks.find(
+            item => item.id === activeTimerTaskId
+        );
+
+    if (!task) return;
+
+    const display =
+        document.getElementById("timerDisplay");
+
+    const status =
+        document.getElementById("timerStatusText");
+
+    if (display) {
+
+        display.textContent =
+            formatSeconds(
+                getTaskRemainingSeconds(task)
+            );
+    }
+
+    if (status) {
+
+        if (task.completed) {
+            status.textContent =
+                "Task completed.";
+        } else if (task.timerFinished) {
+            status.textContent =
+                "Time is up.";
+        } else if (!task.timerRunning) {
+            status.textContent =
+                "Timer is paused.";
+        } else {
+            status.textContent =
+                "Your timer is running automatically.";
+        }
+    }
+}
+
+
+function closeFocusTimer() {
+
+    const modal =
+        document.getElementById("focusTimerModal");
+
+    if (modal) {
+        modal.classList.remove("active");
+    }
+
+    activeTimerTaskId = null;
+}
+
+
+/* =========================================================
+   DONE
+   Stops timer immediately.
+   Shows success.
+   Starts break afterwards.
+========================================================= */
+
+function toggleTaskDone(taskId) {
+
+    const task =
+        tasks.find(
+            item => item.id === taskId
+        );
+
+    if (!task) return;
+
+    /*
+     * Already completed:
+     * do nothing.
+     */
+    if (task.completed) return;
+
+    task.completed = true;
+
+    /*
+     * STOP TIMER IMMEDIATELY.
+     */
+    task.timerRunning = false;
+    task.timerEndAt = null;
+    task.pausedRemaining = null;
+
+    saveTasks();
+
+    if (activeTimerTaskId === taskId) {
+        closeFocusTimer();
+    }
+
+    updateAllTaskTimerButtons();
+
+    refreshVideoPinnedTaskIfNeeded(taskId);
+
+    showTaskResultAnimation(
+        "success",
+        task,
+        () => {
+
+            loadTasks();
+
+            if (
+                task.breakTime &&
+                task.breakTime > 0
+            ) {
+                startBreak(task.breakTime);
+            }
+        }
+    );
+}
+
+
+/* =========================================================
+   SUCCESS / FAILURE
+========================================================= */
+
+function showTaskResultAnimation(
+    type,
+    task,
+    callback = null
+) {
+
+    const overlay =
+        document.getElementById("taskResultOverlay");
+
+    const circle =
+        document.getElementById("taskResultCircle");
+
+    const title =
+        document.getElementById("taskResultTitle");
+
+    const subtitle =
+        document.getElementById("taskResultSubtitle");
+
+    const svg =
+        document.getElementById("taskResultSvg");
+
+    const path =
+        document.getElementById("taskResultPath");
+
+    if (
+        !overlay ||
+        !circle ||
+        !title ||
+        !subtitle ||
+        !svg ||
+        !path
+    ) {
+        if (callback) callback();
+        return;
+    }
+
+    circle.classList.remove(
+        "success",
+        "failure"
+    );
+
+    if (type === "success") {
+
+        circle.classList.add("success");
+
+        title.textContent =
+            "Task Complete!";
+
+        subtitle.textContent =
+            "Great job. Keep going.";
+
+        svg.setAttribute(
+            "viewBox",
+            "0 0 64 64"
+        );
+
+        path.setAttribute(
+            "d",
+            "M18 33L27 42L47 21"
+        );
+
+        /*
+         * Confetti.
+         */
+        if (typeof confetti === "function") {
+
+            setTimeout(() => {
+
+                confetti({
+                    particleCount: 170,
+                    spread: 100,
+                    startVelocity: 38,
+                    origin: {
+                        x: 0.5,
+                        y: 0.52
+                    }
+                });
+
+            }, 120);
+
+            setTimeout(() => {
+
+                confetti({
+                    particleCount: 90,
+                    spread: 65,
+                    startVelocity: 30,
+                    origin: {
+                        x: 0.2,
+                        y: 0.6
+                    }
+                });
+
+                confetti({
+                    particleCount: 90,
+                    spread: 65,
+                    startVelocity: 30,
+                    origin: {
+                        x: 0.8,
+                        y: 0.6
+                    }
+                });
+
+            }, 350);
+        }
+
+    } else {
+
+        circle.classList.add("failure");
+
+        title.textContent =
+            "Time's Up";
+
+        subtitle.textContent =
+            "The focus time ended before you finished.";
+
+        path.setAttribute(
+            "d",
+            "M20 20L44 44M44 20L20 44"
+        );
+    }
+
+    /*
+     * Restart animation.
+     */
+    const animation =
+        circle.animate(
+            [
+                {
+                    transform: "scale(.2)",
+                    opacity: 0
+                },
+                {
+                    transform: "scale(1.12)",
+                    opacity: 1
+                },
+                {
+                    transform: "scale(1)",
+                    opacity: 1
+                }
+            ],
+            {
+                duration: 650,
+                easing: "cubic-bezier(.17,.89,.32,1.4)"
+            }
+        );
+
+    overlay.classList.add("active");
+
+    const duration =
+        type === "success"
+            ? 1900
+            : 1700;
+
+    setTimeout(() => {
+
+        overlay.classList.remove("active");
+
+        if (callback) {
+            callback();
+        }
+
+    }, duration);
+}
+
+
+/* =========================================================
+   BREAK TIMER
+========================================================= */
+
+function startBreak(minutes) {
+
+    const overlay =
+        document.getElementById("breakOverlay");
+
+    const display =
+        document.getElementById("breakDisplay");
+
+    if (!overlay || !display) return;
+
+    breakSeconds =
+        Math.max(
+            1,
+            Math.round(Number(minutes) * 60)
+        );
+
+    overlay.classList.add("active");
+
+    updateBreakDisplay();
+
+    clearInterval(breakInterval);
+
+    breakInterval =
+        setInterval(() => {
+
+            breakSeconds--;
+
+            updateBreakDisplay();
+
+            if (breakSeconds <= 0) {
+
+                finishBreak();
+
+            }
+
+        }, 1000);
+}
+
+
+function updateBreakDisplay() {
+
+    const display =
+        document.getElementById("breakDisplay");
+
+    if (display) {
+        display.textContent =
+            formatSeconds(breakSeconds);
+    }
+}
+
+
+function finishBreak() {
+
+    clearInterval(breakInterval);
+
+    breakInterval = null;
+    breakSeconds = 0;
+
+    const overlay =
+        document.getElementById("breakOverlay");
+
+    if (overlay) {
+        overlay.classList.remove("active");
+    }
+}
+
+
+function skipBreak() {
+
+    finishBreak();
+}
+
+
+/* =========================================================
+   DELETE
+========================================================= */
+
+function deleteTask(taskId) {
+
+    const task =
+        tasks.find(
+            item => item.id === taskId
+        );
+
+    if (!task) return;
+
+    const confirmed =
+        confirm(
+            `Delete "${task.text}"?`
+        );
+
+    if (!confirmed) return;
+
+    if (activeTimerTaskId === taskId) {
+        closeFocusTimer();
+    }
+
+    tasks =
+        tasks.filter(
+            item => item.id !== taskId
+        );
+
+    saveTasks();
+
+    loadTasks();
+
+    refreshVideoPinnedTaskIfNeeded(taskId);
+
+    stopGlobalTimerUpdaterIfUnused();
+}
+
+
+function deleteAllTasks() {
+
+    if (!tasks.length) {
+        alert("There are no tasks to delete.");
+        return;
+    }
+
+    const confirmed =
+        confirm(
+            "Delete ALL tasks?\n\nThis cannot be undone."
+        );
+
+    if (!confirmed) return;
+
+    closeFocusTimer();
+    skipBreak();
+
+    tasks = [];
+
+    saveTasks();
+
+    loadTasks();
+
+    clearVideoActiveTask();
+
+    stopGlobalTimerUpdaterIfUnused();
+}
+
+
+/* =========================================================
+   FILTERS
+========================================================= */
+
+function filterTasksByCategory(category) {
+
+    currentFilter = category;
+
+    document
+        .querySelectorAll(".filter-item")
+        .forEach(button => {
+            button.classList.remove("active");
+        });
+
+    const buttons =
+        document.querySelectorAll(".filter-item");
+
+    buttons.forEach(button => {
+
+        if (
+            button.textContent
+                .trim()
+                .toLowerCase()
+                .startsWith(
+                    category === "All"
+                        ? "all"
+                        : category.toLowerCase()
+                )
+        ) {
+            button.classList.add("active");
+        }
+    });
+
+    const title =
+        document.getElementById("tasksPageTitle");
+
+    if (title) {
+
+        title.textContent =
+            category === "All"
+                ? "My Tasks"
+                : category + " Tasks";
+    }
+
+    loadTasks();
+
+    if (window.innerWidth <= 800) {
+
+        const sidebar =
+            document.getElementById("sidebar");
+
+        if (sidebar) {
+            sidebar.classList.remove("open");
+        }
+    }
+}
+
+
+/* =========================================================
+   TASK SEARCH (shared by the home hero search
+   AND the header nav search)
+========================================================= */
+
+function setupTaskSearchInput(inputId, suggestionsId) {
+
+    const input =
+        document.getElementById(inputId);
+
+    const suggestions =
+        document.getElementById(suggestionsId);
+
+    if (!input || !suggestions) return;
+
+    input.addEventListener(
+        "input",
+        function () {
+
+            const query =
+                this.value
+                    .trim()
+                    .toLowerCase();
+
+            suggestions.innerHTML = "";
+
+            if (query.length < 2) {
+
+                suggestions.classList.remove("active");
+
+                return;
+            }
+
+            const allTasks =
+                getTasks();
+
+            const matches =
+                allTasks
+                    .filter(task =>
+                        String(task.text)
+                            .toLowerCase()
+                            .includes(query)
+                    )
+                    .slice(0, 7);
+
+            if (!matches.length) {
+
+                suggestions.innerHTML = `
+                    <div class="home-search-result">
+                        <div class="home-search-result-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <circle cx="11" cy="11" r="6.5"
+                                    stroke="currentColor"
+                                    stroke-width="1.7"/>
+                                <path d="M16 16L21 21"
+                                    stroke="currentColor"
+                                    stroke-width="1.7"
+                                    stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                        <div class="home-search-result-text">
+                            <strong>No matching tasks</strong>
+                            <small>Try another search</small>
+                        </div>
+                    </div>
+                `;
+
+                suggestions.classList.add("active");
+
+                return;
+            }
+
+            matches.forEach(task => {
+
+                const result =
+                    document.createElement("button");
+
+                result.type = "button";
+
+                result.className =
+                    "home-search-result";
+
+                result.innerHTML = `
+
+                    <div class="home-search-result-icon">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <rect x="5" y="3" width="14" height="18" rx="3"
+                                stroke="currentColor"
+                                stroke-width="1.6"/>
+                            <path d="M8 9L10 11L13 8"
+                                stroke="currentColor"
+                                stroke-width="1.6"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"/>
+                            <path d="M8 15H16"
+                                stroke="currentColor"
+                                stroke-width="1.6"
+                                stroke-linecap="round"/>
+                        </svg>
+                    </div>
+
+                    <div class="home-search-result-text">
+                        <strong>
+                            ${escapeHTML(task.text)}
+                        </strong>
+                        <small>
+                            ${escapeHTML(task.priority || "Normal")}
+                        </small>
+                    </div>
+                `;
+
+                result.addEventListener(
+                    "click",
+                    () => {
+
+                        const targetHref =
+                            isTasksPage()
+                                ? "?taskId=" + encodeURIComponent(task.id)
+                                : "pages/tasks.html?taskId=" + encodeURIComponent(task.id);
+
+                        window.location.href = targetHref;
+
+                    }
+                );
+
+                suggestions.appendChild(result);
+            });
+
+            suggestions.classList.add("active");
+        }
+    );
+
+    document.addEventListener(
+        "click",
+        event => {
+
+            if (
+                !event.target.closest(`#${inputId}`) &&
+                !event.target.closest(`#${suggestionsId}`)
+            ) {
+                suggestions.classList.remove(
+                    "active"
+                );
+            }
+        }
+    );
+}
+
+
+/* =========================================================
+   TASK PAGE SEARCH
+========================================================= */
+
+function searchTasksOnPage(value) {
+
+    const query =
+        String(value || "")
+            .trim()
+            .toLowerCase();
+
+    document
+        .querySelectorAll(".task-item")
+        .forEach(item => {
+
+            const name =
+                item
+                    .querySelector(".task-name")
+                    ?.textContent
+                    .toLowerCase() || "";
+
+            item.style.display =
+                !query ||
+                name.includes(query)
+                    ? ""
+                    : "none";
+        });
+}
+
+
+/* =========================================================
+   HOME -> TASKS TARGET
+========================================================= */
+
+function loadTargetTaskFromURL() {
+
+    if (!isTasksPage()) return;
+
+    const params =
+        new URLSearchParams(
+            window.location.search
+        );
+
+    const taskId =
+        params.get("taskId");
+
+    if (!taskId) {
+        loadTasks();
+        return;
+    }
+
+    loadTasks(taskId);
+}
+
+
+/* =========================================================
+   BACKGROUNDS
+   Four built-in wallpapers, plus an "Add" tile so the person
+   can upload as many of their own background photos as they
+   like. Custom photos are kept in IndexedDB (falls back to a
+   session-only in-memory list if that isn't available) and
+   the gallery scrolls so every background stays reachable no
+   matter how many have been added.
+   (The "Backgrounds" button was taken out of the burger menu;
+   a background that was chosen earlier still gets applied.)
+========================================================= */
+
+const BACKGROUND_THEMES = {
+
+    aurora: {
+        label: "Aurora",
+        file: "images/backgrounds/aurora.jpg"
+    },
+
+    nebula: {
+        label: "Nebula",
+        file: "images/backgrounds/nebula.jpg"
+    },
+
+    sunset: {
+        label: "Sunset",
+        file: "images/backgrounds/sunset.jpg"
+    },
+
+    ocean: {
+        label: "Ocean",
+        file: "images/backgrounds/ocean.jpg"
+    },
+
+    forest: {
+        label: "Forest",
+        file: "images/backgrounds/forest.jpeg"
+    },
+
+    cosmic: {
+        label: "Cosmic",
+        file: "images/backgrounds/cosmic.jpeg"
+    },
+
+    ember: {
+        label: "Ember",
+        file: "images/backgrounds/ember.jpeg"
+    },
+
+    arctic: {
+        label: "Arctic",
+        file: "images/backgrounds/arctic.jpeg"
+    }
+};
+
+const BG_DB_NAME = "focusLabAssetsDB";
+const BG_DB_VERSION = 1;
+const BG_STORE = "customBackgrounds";
+
+let bgDBPromise = null;
+let bgDBFailed = false;
+let inMemoryBackgrounds = [];
+let currentCustomBgObjectURL = null;
+let customBgThumbnailURLs = [];
+
+function openBackgroundsDB() {
+
+    if (bgDBFailed) return Promise.reject(new Error("IndexedDB unavailable"));
+
+    if (bgDBPromise) return bgDBPromise;
+
+    bgDBPromise = new Promise((resolve, reject) => {
+
+        if (typeof indexedDB === "undefined") {
+            reject(new Error("IndexedDB not supported"));
+            return;
+        }
+
+        const request = indexedDB.open(BG_DB_NAME, BG_DB_VERSION);
+
+        request.onupgradeneeded = event => {
+
+            const db = event.target.result;
+
+            if (!db.objectStoreNames.contains(BG_STORE)) {
+                db.createObjectStore(BG_STORE, { keyPath: "id" });
+            }
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error("IndexedDB blocked"));
+    });
+
+    bgDBPromise.catch(() => {
+        bgDBFailed = true;
+        bgDBPromise = null;
+    });
+
+    return bgDBPromise;
+}
+
+/*
+ * These four helpers are the ones every other background
+ * function calls. Each one tries IndexedDB first and — if
+ * that ever fails, for any reason — quietly switches to a
+ * plain in-memory list for the rest of the session instead
+ * of doing nothing. That keeps "Add" always working, even in
+ * a browser/context where IndexedDB isn't available.
+ */
+
+async function bgAddCustom(file) {
+
+    const id = createTaskId();
+    const record = { id, name: file.name, blob: file, addedAt: Date.now() };
+
+    if (!bgDBFailed) {
+
+        try {
+
+            const db = await openBackgroundsDB();
+
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(BG_STORE, "readwrite");
+                tx.objectStore(BG_STORE).put(record);
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+
+            return id;
+
+        } catch {
+            bgDBFailed = true;
+        }
+    }
+
+    inMemoryBackgrounds.push(record);
+
+    return id;
+}
+
+async function bgGetAll() {
+
+    if (!bgDBFailed) {
+
+        try {
+
+            const db = await openBackgroundsDB();
+
+            const list = await new Promise((resolve, reject) => {
+                const tx = db.transaction(BG_STORE, "readonly");
+                const request = tx.objectStore(BG_STORE).getAll();
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = () => reject(request.error);
+            });
+
+            return list.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+
+        } catch {
+            bgDBFailed = true;
+        }
+    }
+
+    return [...inMemoryBackgrounds].sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+}
+
+async function bgGetBlob(id) {
+
+    if (!bgDBFailed) {
+
+        try {
+
+            const db = await openBackgroundsDB();
+
+            const blob = await new Promise((resolve, reject) => {
+                const tx = db.transaction(BG_STORE, "readonly");
+                const request = tx.objectStore(BG_STORE).get(id);
+                request.onsuccess = () => resolve(request.result ? request.result.blob : null);
+                request.onerror = () => reject(request.error);
+            });
+
+            if (blob) return blob;
+
+        } catch {
+            bgDBFailed = true;
+        }
+    }
+
+    const found = inMemoryBackgrounds.find(item => item.id === id);
+
+    return found ? found.blob : null;
+}
+
+async function bgDeleteCustom(id) {
+
+    if (!bgDBFailed) {
+
+        try {
+
+            const db = await openBackgroundsDB();
+
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(BG_STORE, "readwrite");
+                tx.objectStore(BG_STORE).delete(id);
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+
+        } catch {
+            bgDBFailed = true;
+        }
+    }
+
+    inMemoryBackgrounds = inMemoryBackgrounds.filter(item => item.id !== id);
+}
+
+function revokeCustomBgThumbnailURLs() {
+    customBgThumbnailURLs.forEach(url => URL.revokeObjectURL(url));
+    customBgThumbnailURLs = [];
+}
+
+function triggerBackgroundUpload() {
+
+    const input = document.getElementById("backgroundFileInput");
+
+    if (input) input.click();
+}
+
+async function handleBackgroundFileSelected(event) {
+
+    const files = Array.from(event.target.files || []);
+
+    event.target.value = "";
+
+    if (!files.length) return;
+
+    const validFiles = files.filter(file => file.type.startsWith("image/"));
+    const rejectedCount = files.length - validFiles.length;
+
+    for (const file of validFiles) {
+        await bgAddCustom(file);
+    }
+
+    await renderBackgroundGrid();
+
+    if (rejectedCount > 0) {
+        alert(`${rejectedCount} file(s) were skipped — please choose image files.`);
+    }
+}
+
+async function removeCustomBackground(id, event) {
+
+    if (event) event.stopPropagation();
+
+    const confirmed = confirm("Delete this background?");
+
+    if (!confirmed) return;
+
+    await bgDeleteCustom(id);
+
+    if (localStorage.getItem("focusLab_bgTheme") === `custom:${id}`) {
+        localStorage.removeItem("focusLab_bgTheme");
+        await applyBackground("aurora");
+    }
+
+    await renderBackgroundGrid();
+}
+
+/*
+ * Rebuilds the whole background gallery: the 4 built-in
+ * wallpapers, then every custom photo the person has added,
+ * then the "Add" tile. The grid itself scrolls (see main.css)
+ * so the list stays reachable no matter how long it gets.
+ */
+async function renderBackgroundGrid() {
+
+    const grid = document.getElementById("backgroundGrid");
+
+    if (!grid) return;
+
+    const builtInHtml =
+        Object.entries(BACKGROUND_THEMES)
+            .map(([key, theme]) => `
+                <button class="background-option theme-option" data-theme="${key}"
+                        onclick="changeBackground('${key}')" aria-label="${theme.label} background">
+                    <img src="${getAssetPath(theme.file)}" alt="${theme.label} background">
+                </button>
+            `)
+            .join("");
+
+    const customBackgrounds = await bgGetAll();
+
+    revokeCustomBgThumbnailURLs();
+
+    const customHtml =
+        customBackgrounds
+            .map(bg => {
+
+                const url = URL.createObjectURL(bg.blob);
+
+                customBgThumbnailURLs.push(url);
+
+                return `
+                    <div class="background-option-wrapper">
+                        <button class="background-option theme-option" data-theme="custom:${bg.id}"
+                                onclick="changeBackground('custom:${bg.id}')" aria-label="${escapeHTML(bg.name)}">
+                            <img src="${url}" alt="${escapeHTML(bg.name)}">
+                        </button>
+                        <button class="bg-delete-btn" onclick="removeCustomBackground('${bg.id}', event)" aria-label="Delete background">
+                            ✕
+                        </button>
+                    </div>
+                `;
+            })
+            .join("");
+
+    const addTileHtml = `
+        <button type="button" class="background-option bg-add-option" onclick="triggerBackgroundUpload()">
+            <span class="avatar-add-icon">+</span>
+            <span class="avatar-add-label">Add</span>
+        </button>
+    `;
+
+    grid.innerHTML = builtInHtml + customHtml + addTileHtml;
+
+    markSelectedThemeSwatch(getSavedThemeKey());
+}
+
+async function openBackgroundModal() {
+
+    const modal =
+        document.getElementById("backgroundModal");
+
+    if (modal) {
+        modal.classList.add("active");
+    }
+
+    await renderBackgroundGrid();
+}
+
+function closeBackgroundModal() {
+
+    const modal =
+        document.getElementById("backgroundModal");
+
+    if (modal) {
+        modal.classList.remove("active");
+    }
+}
+
+function getSavedThemeKey() {
+    return localStorage.getItem("focusLab_bgTheme") || "aurora";
+}
+
+async function changeBackground(themeKey) {
+
+    if (!themeKey) return;
+
+    if (!themeKey.startsWith("custom:") && !BACKGROUND_THEMES[themeKey]) return;
+
+    localStorage.setItem("focusLab_bgTheme", themeKey);
+
+    await applyBackground(themeKey);
+
+    markSelectedThemeSwatch(themeKey);
+
+    closeBackgroundModal();
+}
+
+function resetBackground() {
+
+    localStorage.removeItem("focusLab_bgTheme");
+
+    const appScreen =
+        document.getElementById("app-screen");
+
+    if (appScreen) {
+        appScreen.style.backgroundImage = "none";
+        appScreen.style.backgroundColor = "#0f172a";
+    }
+
+    if (currentCustomBgObjectURL) {
+        URL.revokeObjectURL(currentCustomBgObjectURL);
+        currentCustomBgObjectURL = null;
+    }
+
+    markSelectedThemeSwatch(null);
+
+    closeBackgroundModal();
+}
+
+async function applyBackground(themeKey) {
+
+    const appScreen =
+        document.getElementById("app-screen");
+
+    if (!appScreen) return;
+
+    let backgroundUrl = null;
+
+    if (themeKey && themeKey.startsWith("custom:")) {
+
+        const id = themeKey.slice("custom:".length);
+        const blob = await bgGetBlob(id);
+
+        if (blob) {
+
+            if (currentCustomBgObjectURL) {
+                URL.revokeObjectURL(currentCustomBgObjectURL);
+            }
+
+            currentCustomBgObjectURL = URL.createObjectURL(blob);
+            backgroundUrl = currentCustomBgObjectURL;
+        }
+    }
+
+    if (!backgroundUrl) {
+
+        const theme =
+            BACKGROUND_THEMES[themeKey] ||
+            BACKGROUND_THEMES.aurora;
+
+        backgroundUrl = getAssetPath(theme.file);
+    }
+
+    appScreen.style.backgroundImage = `
+        linear-gradient(rgba(15,23,42,.55), rgba(15,23,42,.82)),
+        url("${backgroundUrl}")
+    `;
+
+    appScreen.style.backgroundColor = "#0f172a";
+}
+
+function markSelectedThemeSwatch(themeKey) {
+
+    document
+        .querySelectorAll(".theme-option")
+        .forEach(button => {
+
+            button.classList.toggle(
+                "selected",
+                Boolean(themeKey) && button.dataset.theme === themeKey
+            );
+        });
+}
+
+function loadSavedBackground() {
+
+    const savedTheme =
+        localStorage.getItem("focusLab_bgTheme");
+
+    if (savedTheme) {
+        applyBackground(savedTheme);
+    }
+}
+
+
+/* =========================================================
+   MUSIC — lives inside the burger sidebar.
+   Opening it hides the sidebar and shows the panel
+   in the exact same place; closing it brings the
+   sidebar back. Accepts MP3 and MP4 audio files.
+
+   Storage: tracks are kept in IndexedDB first — built for
+   large binary data, so a real library (hundreds of songs)
+   fits comfortably and survives page changes and restarts.
+   If IndexedDB genuinely isn't usable in this browser/
+   context, it automatically falls back to localStorage
+   instead (the same reliable mechanism the rest of this site
+   uses), so "Add Music" never silently fails — that fallback
+   just holds fewer songs, since a whole song has to fit in
+   the browser's small localStorage quota instead of a
+   database built for this.
+========================================================= */
+
+/*
+ * Any normal song is welcome — not only MP3/MP4. The list below
+ * covers what phones and music apps actually save (MP3, M4A/AAC,
+ * WAV, OGG/OPUS, FLAC, MP4 ...). A file is also accepted when its
+ * own type says it is audio or video, whatever its extension is.
+ */
+const MUSIC_MIME_BY_EXTENSION = {
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".m4a": "audio/mp4",
+    ".m4b": "audio/mp4",
+    ".aac": "audio/aac",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".flac": "audio/flac",
+    ".weba": "audio/webm",
+    ".webm": "audio/webm",
+    ".3gp": "audio/3gpp",
+    ".3gpp": "audio/3gpp",
+    ".aif": "audio/aiff",
+    ".aiff": "audio/aiff",
+    ".caf": "audio/x-caf",
+    ".mka": "audio/x-matroska"
+};
+
+const ACCEPTED_MUSIC_EXTENSIONS = Object.keys(MUSIC_MIME_BY_EXTENSION);
+
+/*
+ * What the "Add Music" file picker offers. "audio/*" makes phones
+ * open their normal audio browser (Downloads, Drive, music-app
+ * folders, SD card ...) instead of only videos; the extensions
+ * are listed too so MP4 and the other formats stay selectable.
+ */
+const MUSIC_FILE_INPUT_ACCEPT =
+    "audio/*,video/mp4," + ACCEPTED_MUSIC_EXTENSIONS.join(",");
+
+function configureMusicFileInput() {
+
+    const fileInput = document.getElementById("musicFileInput");
+
+    if (!fileInput) return;
+
+    fileInput.setAttribute("accept", MUSIC_FILE_INPUT_ACCEPT);
+    fileInput.multiple = true;
+}
+
+function getFileExtension(name) {
+
+    const lower = String(name || "").toLowerCase();
+    const dot = lower.lastIndexOf(".");
+
+    return dot >= 0 ? lower.slice(dot) : "";
+}
+
+/*
+ * Gives the saved song a proper audio type. Some phones hand
+ * over songs with an empty type, which can make playback fail
+ * later — so when the type is missing, it is set from the extension.
+ */
+function getMusicMimeType(file) {
+
+    const type = String(file.type || "").toLowerCase();
+
+    if (type.startsWith("audio/") || type.startsWith("video/")) {
+        return type;
+    }
+
+    return MUSIC_MIME_BY_EXTENSION[getFileExtension(file.name)] || "audio/mpeg";
+}
+
+const MUSIC_DB_NAME = "focusLabMusicDB";
+const MUSIC_DB_VERSION = 1;
+const MUSIC_META_STORE = "trackMeta";
+const MUSIC_BLOB_STORE = "trackBlobs";
+
+let currentMusicObjectURL = null;
+let musicDBPromise = null;
+let musicDBFailed = false;
+
+function openMusicDB() {
+
+    if (musicDBFailed) return Promise.reject(new Error("IndexedDB unavailable"));
+
+    if (musicDBPromise) return musicDBPromise;
+
+    musicDBPromise = new Promise((resolve, reject) => {
+
+        if (typeof indexedDB === "undefined") {
+            reject(new Error("IndexedDB not supported"));
+            return;
+        }
+
+        const request =
+            indexedDB.open(MUSIC_DB_NAME, MUSIC_DB_VERSION);
+
+        request.onupgradeneeded = event => {
+
+            const db = event.target.result;
+
+            if (!db.objectStoreNames.contains(MUSIC_META_STORE)) {
+                db.createObjectStore(MUSIC_META_STORE, { keyPath: "id" });
+            }
+
+            if (!db.objectStoreNames.contains(MUSIC_BLOB_STORE)) {
+                db.createObjectStore(MUSIC_BLOB_STORE, { keyPath: "id" });
+            }
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error("IndexedDB blocked"));
+    });
+
+    /*
+     * If opening the database ever fails, don't keep re-using
+     * this same failed promise forever — mark it unavailable
+     * so every helper below falls back to localStorage instead
+     * for the rest of this page's lifetime.
+     */
+    musicDBPromise.catch(() => {
+        musicDBFailed = true;
+        musicDBPromise = null;
+    });
+
+    return musicDBPromise;
+}
+
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+    });
+}
+
+function dataURLToBlob(dataUrl) {
+
+    const [header, base64] = dataUrl.split(",");
+    const mimeMatch = header.match(/data:(.*);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : "audio/mpeg";
+
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+
+    return new Blob([bytes], { type: mime });
+}
+
+function getMusicFallbackList() {
+    try {
+        const stored = localStorage.getItem("focusLab_musicFallbackList");
+        const parsed = stored ? JSON.parse(stored) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveMusicFallbackList(list) {
+    localStorage.setItem("focusLab_musicFallbackList", JSON.stringify(list));
+}
+
+/*
+ * These four helpers are the ones the rest of the music
+ * player calls. Each tries IndexedDB first (large capacity,
+ * survives reloads/navigation) and — only if that genuinely
+ * isn't usable — falls back to localStorage instead, which
+ * still persists, just with far less room.
+ */
+
+async function musicAddTrack(meta, blob) {
+
+    if (!musicDBFailed) {
+
+        try {
+
+            const db = await openMusicDB();
+
+            await new Promise((resolve, reject) => {
+
+                const tx = db.transaction(
+                    [MUSIC_META_STORE, MUSIC_BLOB_STORE],
+                    "readwrite"
+                );
+
+                tx.objectStore(MUSIC_META_STORE).put(meta);
+                tx.objectStore(MUSIC_BLOB_STORE).put({ id: meta.id, blob });
+
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+
+            return;
+
+        } catch {
+            musicDBFailed = true;
+        }
+    }
+
+    try {
+
+        const dataUrl = await blobToDataURL(blob);
+        const list = getMusicFallbackList();
+
+        list.push({ id: meta.id, name: meta.name, addedAt: meta.addedAt, dataUrl });
+
+        saveMusicFallbackList(list);
+
+    } catch {
+
+        alert(`"${meta.name}" couldn't be saved permanently — your browser's storage is full. Try removing a song first, or use a smaller/fewer files.`);
+    }
+}
+
+async function musicGetAllMeta() {
+
+    if (!musicDBFailed) {
+
+        try {
+
+            const db = await openMusicDB();
+
+            const list = await new Promise((resolve, reject) => {
+
+                const tx = db.transaction(MUSIC_META_STORE, "readonly");
+                const request = tx.objectStore(MUSIC_META_STORE).getAll();
+
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = () => reject(request.error);
+            });
+
+            return list.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+
+        } catch {
+            musicDBFailed = true;
+        }
+    }
+
+    return getMusicFallbackList()
+        .map(track => ({ id: track.id, name: track.name, addedAt: track.addedAt }))
+        .sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+}
+
+async function musicGetBlob(trackId) {
+
+    if (!musicDBFailed) {
+
+        try {
+
+            const db = await openMusicDB();
+
+            const blob = await new Promise((resolve, reject) => {
+
+                const tx = db.transaction(MUSIC_BLOB_STORE, "readonly");
+                const request = tx.objectStore(MUSIC_BLOB_STORE).get(trackId);
+
+                request.onsuccess = () =>
+                    resolve(request.result ? request.result.blob : null);
+
+                request.onerror = () => reject(request.error);
+            });
+
+            if (blob) return blob;
+
+        } catch {
+            musicDBFailed = true;
+        }
+    }
+
+    const fallbackTrack = getMusicFallbackList().find(track => track.id === trackId);
+
+    return fallbackTrack ? dataURLToBlob(fallbackTrack.dataUrl) : null;
+}
+
+async function musicDeleteTrack(trackId) {
+
+    if (!musicDBFailed) {
+
+        try {
+
+            const db = await openMusicDB();
+
+            await new Promise((resolve, reject) => {
+
+                const tx = db.transaction(
+                    [MUSIC_META_STORE, MUSIC_BLOB_STORE],
+                    "readwrite"
+                );
+
+                tx.objectStore(MUSIC_META_STORE).delete(trackId);
+                tx.objectStore(MUSIC_BLOB_STORE).delete(trackId);
+
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+
+        } catch {
+            musicDBFailed = true;
+        }
+    }
+
+    const fallbackList = getMusicFallbackList();
+    const filteredFallback = fallbackList.filter(track => track.id !== trackId);
+
+    if (filteredFallback.length !== fallbackList.length) {
+        saveMusicFallbackList(filteredFallback);
+    }
+}
+
+
+function getMusicManifest() {
+    return typeof MUSIC_MANIFEST !== "undefined" && Array.isArray(MUSIC_MANIFEST)
+        ? MUSIC_MANIFEST
+        : [];
+}
+
+function getMusicAssetPath(file) {
+    return isInPagesFolder() ? "../music/" + file : "music/" + file;
+}
+
+/*
+ * Combines the owner-managed permanent songs (music/manifest.js)
+ * with whatever the visitor has added themselves, so both show
+ * up together in one list. Permanent songs always come first and
+ * can't be deleted from the site — only uploaded ones can.
+ */
+async function getMergedMusicList() {
+
+    const permanentTracks = getMusicManifest().map(entry => ({
+        id: "permanent:" + encodeURIComponent(entry.file),
+        name: entry.name,
+        permanent: true
+    }));
+
+    const uploadedTracks = (await musicGetAllMeta())
+        .map(track => ({ ...track, permanent: false }));
+
+    return permanentTracks.concat(uploadedTracks);
+}
+
+function toggleMusicPanel() {
+
+    const panel =
+        document.getElementById("musicSidebarPanel");
+
+    if (!panel) return;
+
+    if (panel.classList.contains("active")) {
+        closeMusicSidebarPanel();
+        return;
+    }
+
+    const sidebar =
+        document.getElementById("sidebar");
+
+    if (sidebar) {
+        sidebar.classList.add("panel-hidden");
+    }
+
+    panel.classList.remove("panel-hidden");
+    panel.classList.add("active");
+
+    renderMusicList();
+}
+
+function closeMusicSidebarPanel() {
+
+    const sidebar =
+        document.getElementById("sidebar");
+
+    const panel =
+        document.getElementById("musicSidebarPanel");
+
+    if (panel) {
+        panel.classList.remove("active");
+        panel.classList.add("panel-hidden");
+    }
+
+    if (sidebar) {
+        sidebar.classList.remove("panel-hidden");
+    }
+}
+
+function triggerAddMusic() {
+
+    const fileInput =
+        document.getElementById("musicFileInput");
+
+    if (fileInput) {
+        fileInput.click();
+    }
+}
+
+function isAcceptedMusicFile(file) {
+
+    const type = String(file.type || "").toLowerCase();
+
+    const hasAcceptedExtension =
+        ACCEPTED_MUSIC_EXTENSIONS.includes(getFileExtension(file.name));
+
+    const hasAcceptedType =
+        type.startsWith("audio/") ||
+        type === "video/mp4";
+
+    return hasAcceptedExtension || hasAcceptedType;
+}
+
+/*
+ * Accepts one, a few, or well over a thousand files at once
+ * (the file input has the "multiple" attribute) and stores
+ * every valid audio file straight into IndexedDB as a Blob —
+ * no size-limited base64 copy, no cap on how many songs the
+ * playlist can hold.
+ */
+async function handleMusicFileSelected(event) {
+
+    const files = Array.from(event.target.files || []);
+
+    event.target.value = "";
+
+    if (!files.length) return;
+
+    const accepted = files.filter(isAcceptedMusicFile);
+    const rejectedCount = files.length - accepted.length;
+
+    if (!accepted.length) {
+        alert("Please choose audio files (MP3, M4A, WAV, OGG, FLAC, MP4 ...).");
+        return;
+    }
+
+    let firstNewTrackId = null;
+    let addedAt = Date.now();
+
+    for (const file of accepted) {
+
+        const id = createTaskId();
+
+        const mimeType = getMusicMimeType(file);
+
+        const blob =
+            file.type === mimeType
+                ? file
+                : file.slice(0, file.size, mimeType);
+
+        await musicAddTrack(
+            { id, name: file.name, addedAt: addedAt++ },
+            blob
+        );
+
+        if (!firstNewTrackId) {
+            firstNewTrackId = id;
+        }
+    }
+
+    await renderMusicList();
+
+    if (rejectedCount > 0) {
+        alert(`${rejectedCount} file(s) were skipped — they aren't audio files.`);
+    }
+
+    const isPlaying =
+        localStorage.getItem("focusLab_musicPlaying") === "true";
+
+    if (!isPlaying && firstNewTrackId) {
+        await playMusicTrack(firstNewTrackId);
+    }
+}
+
+async function renderMusicList() {
+
+    const container =
+        document.getElementById("musicListContainer");
+
+    if (!container) return;
+
+    const list = await getMergedMusicList();
+
+    const currentId =
+        localStorage.getItem("focusLab_musicCurrentId");
+
+    const isPlaying =
+        localStorage.getItem("focusLab_musicPlaying") === "true";
+
+    if (!list.length) {
+
+        container.innerHTML =
+            `<p class="music-empty-text">No music added yet.</p>`;
+
+        return;
+    }
+
+    container.innerHTML = `
+        <p class="music-hint">${list.length} song${list.length === 1 ? "" : "s"} in your library</p>
+    ` +
+        list.map(track => {
+
+            const playing =
+                track.id === currentId && isPlaying;
+
+            const deleteButtonHTML = track.permanent
+                ? ""
+                : `
+                    <button
+                        class="music-item-delete-btn"
+                        onclick="deleteMusicItem('${track.id}')"
+                        aria-label="Delete track"
+                    >
+                        ✕
+                    </button>
+                `;
+
+            return `
+                <div class="music-list-item">
+                    <button
+                        class="music-item-play-btn"
+                        onclick="toggleMusicTrack('${track.id}')"
+                        aria-label="${playing ? "Pause" : "Play"}"
+                    >
+                        ${playing ? PAUSE_ICON_SVG : PLAY_ICON_SVG}
+                    </button>
+                    <span class="music-item-name">
+                        ${escapeHTML(track.name)}
+                    </span>
+                    ${
+                        track.permanent
+                            ? `<span class="music-item-permanent-badge" title="Always available on this site">Site song</span>`
+                            : ""
+                    }
+                    ${deleteButtonHTML}
+                </div>
+            `;
+
+        }).join("");
+}
+
+async function toggleMusicTrack(trackId) {
+
+    const currentId =
+        localStorage.getItem("focusLab_musicCurrentId");
+
+    const isPlaying =
+        localStorage.getItem("focusLab_musicPlaying") === "true";
+
+    if (currentId === trackId && isPlaying) {
+        pauseMusic();
+    } else {
+        await playMusicTrack(trackId);
+    }
+
+    renderMusicList();
+}
+
+async function playMusicTrack(trackId) {
+
+    stopCurrentAudioElement();
+
+    if (trackId.startsWith("permanent:")) {
+
+        const file = decodeURIComponent(trackId.slice("permanent:".length));
+
+        currentMusicAudioEl = new Audio(getMusicAssetPath(file));
+
+    } else {
+
+        const blob = await musicGetBlob(trackId);
+
+        if (!blob) return;
+
+        const url = URL.createObjectURL(blob);
+
+        currentMusicObjectURL = url;
+        currentMusicAudioEl = new Audio(url);
+    }
+
+    currentMusicAudioEl.loop = true;
+
+    /* Respect the Sound switch in Settings. */
+    currentMusicAudioEl.muted = isSoundMuted();
+
+    watchMusicPlaybackError(currentMusicAudioEl);
+
+    currentMusicAudioEl
+        .play()
+        .catch(() => {
+            /* Autoplay may be blocked until the user interacts. */
+        });
+
+    localStorage.setItem("focusLab_musicCurrentId", trackId);
+    localStorage.setItem("focusLab_musicPlaying", "true");
+    localStorage.setItem("focusLab_musicPosition", "0");
+    localStorage.setItem("focusLab_musicStartedAt", String(Date.now()));
+
+    startMusicPositionSaver();
+}
+
+/*
+ * If the browser can't decode a song (a rare audio format),
+ * say so once instead of failing silently.
+ */
+function watchMusicPlaybackError(audioEl) {
+
+    audioEl.addEventListener("error", () => {
+
+        if (audioEl !== currentMusicAudioEl) return;
+
+        localStorage.setItem("focusLab_musicPlaying", "false");
+
+        stopMusicPositionSaver();
+
+        renderMusicList();
+
+        alert("This song's format can't be played by your browser. Try an MP3 or M4A version of it.");
+
+    }, { once: true });
+}
+
+function pauseMusic() {
+
+    if (currentMusicAudioEl) {
+
+        localStorage.setItem(
+            "focusLab_musicPosition",
+            String(currentMusicAudioEl.currentTime || 0)
+        );
+
+        currentMusicAudioEl.pause();
+    }
+
+    localStorage.setItem("focusLab_musicPlaying", "false");
+
+    stopMusicPositionSaver();
+}
+
+function stopMusic() {
+
+    stopCurrentAudioElement();
+
+    localStorage.setItem("focusLab_musicPlaying", "false");
+    localStorage.setItem("focusLab_musicPosition", "0");
+
+    stopMusicPositionSaver();
+
+    renderMusicList();
+}
+
+function stopCurrentAudioElement() {
+
+    if (currentMusicAudioEl) {
+
+        try {
+            currentMusicAudioEl.pause();
+        } catch {}
+
+        currentMusicAudioEl = null;
+    }
+
+    if (currentMusicObjectURL) {
+
+        URL.revokeObjectURL(currentMusicObjectURL);
+
+        currentMusicObjectURL = null;
+    }
+}
+
+async function deleteMusicItem(trackId) {
+
+    /* Permanent (site-provided) songs can't be removed from
+       the site itself — there's no delete button for them,
+       but guard here too in case this is ever called directly. */
+    if (trackId.startsWith("permanent:")) return;
+
+    await musicDeleteTrack(trackId);
+
+    const currentId =
+        localStorage.getItem("focusLab_musicCurrentId");
+
+    if (currentId === trackId) {
+        stopMusic();
+        localStorage.removeItem("focusLab_musicCurrentId");
+    }
+
+    renderMusicList();
+}
+
+function startMusicPositionSaver() {
+
+    if (musicPositionSaveInterval) return;
+
+    musicPositionSaveInterval =
+        setInterval(() => {
+
+            if (
+                currentMusicAudioEl &&
+                !currentMusicAudioEl.paused
+            ) {
+                localStorage.setItem(
+                    "focusLab_musicPosition",
+                    String(currentMusicAudioEl.currentTime || 0)
+                );
+
+                localStorage.setItem(
+                    "focusLab_musicStartedAt",
+                    String(Date.now())
+                );
+            }
+
+        }, 2000);
+}
+
+function stopMusicPositionSaver() {
+
+    if (musicPositionSaveInterval) {
+        clearInterval(musicPositionSaveInterval);
+        musicPositionSaveInterval = null;
+    }
+}
+
+/*
+ * Resumes playback on every page load so the music
+ * keeps going across navigation and reloads.
+ */
+async function initMusicPlayback() {
+
+    const isPlaying =
+        localStorage.getItem("focusLab_musicPlaying") === "true";
+
+    if (!isPlaying) return;
+
+    const trackId =
+        localStorage.getItem("focusLab_musicCurrentId");
+
+    if (!trackId) return;
+
+    let audioSrc = null;
+
+    if (trackId.startsWith("permanent:")) {
+
+        const file = decodeURIComponent(trackId.slice("permanent:".length));
+
+        audioSrc = getMusicAssetPath(file);
+
+    } else {
+
+        const blob = await musicGetBlob(trackId);
+
+        if (!blob) return;
+
+        audioSrc = URL.createObjectURL(blob);
+        currentMusicObjectURL = audioSrc;
+    }
+
+    const savedPosition =
+        Number(localStorage.getItem("focusLab_musicPosition") || 0);
+
+    const startedAt =
+        Number(localStorage.getItem("focusLab_musicStartedAt") || Date.now());
+
+    const elapsed =
+        Math.max(0, (Date.now() - startedAt) / 1000);
+
+    let resumeAt = savedPosition + elapsed;
+
+    currentMusicAudioEl = new Audio(audioSrc);
+    currentMusicAudioEl.loop = true;
+
+    /* Respect the Sound switch in Settings. */
+    currentMusicAudioEl.muted = isSoundMuted();
+
+    currentMusicAudioEl.addEventListener(
+        "loadedmetadata",
+        () => {
+
+            if (
+                currentMusicAudioEl.duration &&
+                resumeAt >= currentMusicAudioEl.duration
+            ) {
+                resumeAt = resumeAt % currentMusicAudioEl.duration;
+            }
+
+            currentMusicAudioEl.currentTime = resumeAt;
+
+            currentMusicAudioEl
+                .play()
+                .catch(() => {});
+        }
+    );
+
+    startMusicPositionSaver();
+}
+
+
+/* =========================================================
+   VIDEOS PAGE
+   The video library is owner-managed, not visitor-managed:
+   there is no upload or delete button on this page. Videos
+   come from a YouTube playlist listed in videos/manifest.js
+   (Lofi Study, Anime Study, or anything else) — each entry is
+   just a YouTube video ID or link. To add a video: add one
+   line to that manifest — see that file for the exact format.
+   Visitors can only browse, search, and play what's listed
+   there. Playback uses YouTube's own IFrame Player API, so
+   the usual play/pause/volume/fullscreen controls are
+   YouTube's native ones.
+========================================================= */
+
+function isVideosPage() {
+    return !!document.getElementById("videoGridContainer");
+}
+
+function getVideoManifest() {
+    return typeof VIDEO_MANIFEST !== "undefined" && Array.isArray(VIDEO_MANIFEST)
+        ? VIDEO_MANIFEST
+        : [];
+}
+
+/*
+ * Accepts a bare 11-character YouTube ID, or a full/short
+ * YouTube URL in any common form, and returns just the ID —
+ * so the manifest can hold whichever is easiest to paste.
+ */
+function extractYoutubeId(value) {
+
+    const raw = String(value || "").trim();
+
+    if (/^[\w-]{11}$/.test(raw)) {
+        return raw;
+    }
+
+    const patterns = [
+        /youtu\.be\/([\w-]{11})/,
+        /youtube\.com\/watch\?v=([\w-]{11})/,
+        /youtube\.com\/embed\/([\w-]{11})/,
+        /youtube\.com\/shorts\/([\w-]{11})/
+    ];
+
+    for (const pattern of patterns) {
+        const match = raw.match(pattern);
+        if (match) return match[1];
+    }
+
+    return raw;
+}
+
+function getYoutubeThumbnailURL(youtubeId) {
+    return `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+}
+
+const VIDEO_THUMB_ICON_SVG = `
+    <svg viewBox="0 0 24 24" fill="none">
+        <path d="M9 8L16 12L9 16V8Z" fill="currentColor"/>
+    </svg>
+`;
+
+const FULLSCREEN_ENTER_ICON_SVG = `
+    <svg viewBox="0 0 24 24" fill="none">
+        <path d="M4 9V5C4 4.45 4.45 4 5 4H9M15 4H19C19.55 4 20 4.45 20 5V9M20 15V19C20 19.55 19.55 20 19 20H15M9 20H5C4.45 20 4 19.55 4 19V15"
+              stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+`;
+
+const FULLSCREEN_EXIT_ICON_SVG = `
+    <svg viewBox="0 0 24 24" fill="none">
+        <path d="M9 4V8C9 8.55 8.55 9 8 9H4M15 4V8C15 8.55 15.45 9 16 9H20M20 15H16C15.45 15 15 15.45 15 16V20M4 15H8C8.55 15 9 15.45 9 16V20"
+              stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+`;
+
+function renderVideoGrid() {
+
+    const container = document.getElementById("videoGridContainer");
+    const empty = document.getElementById("emptyVideosState");
+
+    if (!container) return;
+
+    const videos = getVideoManifest();
+
+    if (empty) {
+        empty.classList.toggle("active", videos.length === 0);
+    }
+
+    container.innerHTML = videos.map(video => {
+
+        const youtubeId = extractYoutubeId(video.youtubeId || video.file || "");
+
+        return `
+            <div class="video-card" data-video-name="${escapeHTML(video.name.toLowerCase())}">
+                <button class="video-card-thumb" onclick="openVideoPlayer('${youtubeId}', '${escapeHTML(video.name)}')" aria-label="Play ${escapeHTML(video.name)}">
+                    <img src="${getYoutubeThumbnailURL(youtubeId)}" alt="${escapeHTML(video.name)}" loading="lazy">
+                    <span class="video-card-play-badge">${VIDEO_THUMB_ICON_SVG}</span>
+                </button>
+                <div class="video-card-info">
+                    <span class="video-card-name">${escapeHTML(video.name)}</span>
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    searchVideosOnPage(document.getElementById("videoSearchInput")?.value || "");
+}
+
+function searchVideosOnPage(value) {
+
+    const query = String(value || "").trim().toLowerCase();
+
+    document
+        .querySelectorAll(".video-card[data-video-name]")
+        .forEach(card => {
+
+            const name = card.dataset.videoName || "";
+
+            card.style.display =
+                !query || name.includes(query) ? "" : "none";
+        });
+}
+
+
+/* --- YouTube IFrame Player API --- */
+
+let youtubePlayer = null;
+let youtubeApiReady = false;
+let youtubeApiLoading = false;
+let pendingYoutubeId = null;
+
+/*
+ * The YouTube API calls this exact global function name once
+ * it has finished loading — it has to live on window.
+ */
+window.onYouTubeIframeAPIReady = function () {
+
+    youtubeApiReady = true;
+
+    if (pendingYoutubeId) {
+        createYoutubePlayer(pendingYoutubeId);
+        pendingYoutubeId = null;
+    }
+};
+
+function loadYoutubeIframeAPI() {
+
+    if (youtubeApiReady || youtubeApiLoading) return;
+
+    youtubeApiLoading = true;
+
+    const script = document.createElement("script");
+
+    script.src = "https://www.youtube.com/iframe_api";
+
+    document.head.appendChild(script);
+}
+
+function createYoutubePlayer(youtubeId) {
+
+    const host = document.getElementById("videoPlayerEl");
+
+    if (!host || typeof YT === "undefined" || !YT.Player) return;
+
+    if (youtubePlayer && youtubePlayer.loadVideoById) {
+
+        youtubePlayer.loadVideoById(youtubeId);
+        youtubePlayer.playVideo();
+        return;
+    }
+
+    youtubePlayer = new YT.Player("videoPlayerEl", {
+
+        videoId: youtubeId,
+
+        playerVars: {
+            autoplay: 1,
+            rel: 0,
+            modestbranding: 1,
+            playsinline: 1,
+            fs: 0
+        },
+
+        events: {
+            onReady: event => {
+
+                /* Respect the Sound switch in Settings. */
+                applySoundState();
+
+                event.target.playVideo();
+            }
+        }
+    });
+}
+
+function openVideoPlayer(youtubeId, name) {
+
+    const modal = document.getElementById("videoPlayerModal");
+    const title = document.getElementById("videoPlayerTitle");
+
+    if (!modal) return;
+
+    if (title) {
+        title.textContent = name || "";
+    }
+
+    modal.classList.add("active");
+
+    setupVideoUiAutoHide();
+
+    showVideoUi();
+
+    if (youtubeApiReady) {
+        createYoutubePlayer(youtubeId);
+    } else {
+        pendingYoutubeId = youtubeId;
+        loadYoutubeIframeAPI();
+    }
+
+    clearVideoActiveTask();
+}
+
+function closeVideoPlayer() {
+
+    const modal = document.getElementById("videoPlayerModal");
+
+    /* Only leave full-screen if it is the video that is
+       full-screen — not the whole-site full-screen switched
+       on from Settings. */
+    const box = document.querySelector(".video-player-overlay .video-player-box");
+
+    if (box && getFullscreenElement() === box) {
+
+        const exit = document.exitFullscreen
+            ? document.exitFullscreen()
+            : (document.webkitExitFullscreen ? document.webkitExitFullscreen() : null);
+
+        if (exit && typeof exit.catch === "function") {
+            exit.catch(() => {});
+        }
+    }
+
+    if (modal) {
+        modal.classList.remove("active");
+        modal.classList.remove("video-ui-hidden");
+    }
+
+    clearTimeout(videoUiHideTimer);
+
+    if (youtubePlayer && youtubePlayer.stopVideo) {
+        youtubePlayer.stopVideo();
+    }
+
+    pendingYoutubeId = null;
+
+    hideVideoTaskSuggestions();
+}
+
+
+/*
+ * Our own full-screen control — used instead of YouTube's
+ * built-in one (disabled above via playerVars.fs) so that
+ * going full-screen takes the whole .video-player-box with
+ * it, task card included. The search bar is hidden while
+ * full-screen (see the :fullscreen rule in main.css); the
+ * pinned task card is deliberately left alone so it keeps
+ * showing on top of the video the whole time.
+ */
+function toggleVideoFullscreen() {
+
+    const box = document.querySelector(".video-player-overlay .video-player-box");
+
+    if (!box) return;
+
+    if (getFullscreenElement() === box) {
+
+        const exit = document.exitFullscreen
+            ? document.exitFullscreen()
+            : (document.webkitExitFullscreen ? document.webkitExitFullscreen() : null);
+
+        if (exit && typeof exit.catch === "function") {
+            exit.catch(() => {});
+        }
+
+    } else if (box.requestFullscreen) {
+        box.requestFullscreen().catch(() => {});
+    }
+}
+
+document.addEventListener("fullscreenchange", () => {
+
+    const button = document.getElementById("videoFullscreenToggleBtn");
+
+    if (!button) return;
+
+    const box = document.querySelector(".video-player-overlay .video-player-box");
+
+    const isFullscreen = Boolean(box) && getFullscreenElement() === box;
+
+    button.innerHTML = isFullscreen ? FULLSCREEN_EXIT_ICON_SVG : FULLSCREEN_ENTER_ICON_SVG;
+    button.setAttribute("aria-label", isFullscreen ? "Exit full screen" : "Full screen");
+});
+
+
+/* --- Video controls that hide when the mouse is still ---
+   Like YouTube: moving the mouse (or touching the screen)
+   brings the search bar and the close button back; if nothing
+   moves for a moment they fade away. They stay while the
+   person is typing in the search box or choosing a task.
+   The pinned task card is never hidden. */
+
+const VIDEO_UI_IDLE_MS = 2500;
+
+let videoUiHideTimer = null;
+let videoLastMouseX = -1;
+let videoLastMouseY = -1;
+
+function showVideoUi() {
+
+    const modal = document.getElementById("videoPlayerModal");
+
+    if (!modal) return;
+
+    modal.classList.remove("video-ui-hidden");
+
+    clearTimeout(videoUiHideTimer);
+
+    videoUiHideTimer = setTimeout(hideVideoUiIfIdle, VIDEO_UI_IDLE_MS);
+}
+
+function hideVideoUiIfIdle() {
+
+    const modal = document.getElementById("videoPlayerModal");
+
+    if (!modal || !modal.classList.contains("active")) return;
+
+    const input = document.getElementById("videoTaskSearchInput");
+    const suggestions = document.getElementById("videoTaskSearchSuggestions");
+
+    const busy =
+        (input && document.activeElement === input) ||
+        (suggestions && suggestions.classList.contains("active"));
+
+    if (busy) {
+        videoUiHideTimer = setTimeout(hideVideoUiIfIdle, VIDEO_UI_IDLE_MS);
+        return;
+    }
+
+    modal.classList.add("video-ui-hidden");
+}
+
+function setupVideoUiAutoHide() {
+
+    const modal = document.getElementById("videoPlayerModal");
+
+    if (!modal || modal.dataset.autoHide) return;
+
+    modal.dataset.autoHide = "1";
+
+    /* Mouse: only a real movement counts (a few pixels), so the
+       browser's own "fake" moves do not bring the bar back. */
+    modal.addEventListener("mousemove", event => {
+
+        const moved =
+            Math.abs(event.clientX - videoLastMouseX) > 2 ||
+            Math.abs(event.clientY - videoLastMouseY) > 2;
+
+        videoLastMouseX = event.clientX;
+        videoLastMouseY = event.clientY;
+
+        if (moved) showVideoUi();
+
+    }, { passive: true });
+
+    /* Touch screens: a tap shows the controls. */
+    ["pointerdown", "touchstart"].forEach(name =>
+        modal.addEventListener(name, showVideoUi, { passive: true })
+    );
+}
+
+
+/* --- "Bring your task into the video" search overlay ---
+   Lets the person search their task list from inside the
+   full-screen player and pin the one they're working on as
+   a small overlay card while they watch. */
+
+let currentVideoTaskId = null;
+
+function handleVideoTaskSearchInput(value) {
+
+    const suggestions = document.getElementById("videoTaskSearchSuggestions");
+
+    if (!suggestions) return;
+
+    const query = String(value || "").trim().toLowerCase();
+
+    suggestions.innerHTML = "";
+
+    if (query.length < 1) {
+        suggestions.classList.remove("active");
+        return;
+    }
+
+    const matches = tasks
+        .filter(task => String(task.text).toLowerCase().includes(query))
+        .slice(0, 6);
+
+    if (!matches.length) {
+
+        suggestions.innerHTML = `
+            <div class="home-search-result">
+                <div class="home-search-result-text">
+                    <strong>No matching tasks</strong>
+                </div>
+            </div>
+        `;
+
+        suggestions.classList.add("active");
+
+        return;
+    }
+
+    suggestions.innerHTML = matches.map(task => `
+        <button type="button" class="home-search-result" onclick="selectVideoTask('${task.id}')">
+            <div class="home-search-result-text">
+                <strong>${escapeHTML(task.text)}</strong>
+                <small>${escapeHTML(task.priority || "Normal")}</small>
+            </div>
+        </button>
+    `).join("");
+
+    suggestions.classList.add("active");
+}
+
+function selectVideoTask(taskId) {
+
+    const task = tasks.find(item => item.id === taskId);
+
+    if (!task) return;
+
+    currentVideoTaskId = taskId;
+
+    renderVideoActiveTaskCard();
+
+    const input = document.getElementById("videoTaskSearchInput");
+
+    if (input) input.value = "";
+
+    hideVideoTaskSuggestions();
+}
+
+/*
+ * Renders the pinned task using the exact same row markup as
+ * the Tasks page (buildTaskItemElement) — same time display,
+ * priority badge, complete button, timer play/pause, and
+ * delete button. Because it carries the real data-task-id,
+ * the normal update loop (updateAllTaskTimerButtons) keeps its
+ * countdown ticking automatically, same as on the Tasks page.
+ */
+function renderVideoActiveTaskCard() {
+
+    const card = document.getElementById("videoActiveTaskCard");
+    const host = document.getElementById("videoActiveTaskItemHost");
+
+    if (!card || !host) return;
+
+    const task = tasks.find(item => item.id === currentVideoTaskId);
+
+    if (!task) {
+        clearVideoActiveTask();
+        return;
+    }
+
+    host.innerHTML = "";
+    host.appendChild(buildTaskItemElement(task));
+
+    card.classList.add("active");
+
+    if (task.timerRunning && task.timerEndAt) {
+        startGlobalTimerUpdater();
+    }
+}
+
+/*
+ * Called after any task edit (complete / delete / delete all)
+ * so the pinned card in the video player never goes stale —
+ * it re-renders if the task changed, or clears if it's gone.
+ */
+function refreshVideoPinnedTaskIfNeeded(taskId) {
+
+    if (currentVideoTaskId !== taskId) return;
+
+    renderVideoActiveTaskCard();
+}
+
+function clearVideoActiveTask() {
+
+    currentVideoTaskId = null;
+
+    const card = document.getElementById("videoActiveTaskCard");
+    const host = document.getElementById("videoActiveTaskItemHost");
+
+    if (card) card.classList.remove("active");
+
+    if (host) host.innerHTML = "";
+}
+
+function hideVideoTaskSuggestions() {
+
+    const suggestions = document.getElementById("videoTaskSearchSuggestions");
+
+    if (suggestions) {
+        suggestions.classList.remove("active");
+    }
+}
+
+
+/* =========================================================
+   KEYBOARD
+========================================================= */
+
+document.addEventListener(
+    "keydown",
+    event => {
+
+        if (event.key === "Escape") {
+
+            closeAddTaskModal();
+            closeBackgroundModal();
+            closeFocusTimer();
+            closeAvatarEditModal();
+            closeSettingsModal();
+            closeVideoPlayer();
+        }
+
+        if (
+            event.key === "Enter" &&
+            document.activeElement?.id ===
+                "taskTextInput"
+        ) {
+            createTask();
+        }
+    }
+);
+
+
+/* =========================================================
+   INIT
+========================================================= */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+
+        applySiteTheme();
+
+
+        applyAuthView();
+
+        loadUserInfo();
+
+        tasks = getTasks();
+
+        if (document.getElementById("app-screen")) {
+            loadSavedBackground();
+        }
+
+        if (isTasksPage()) {
+
+            normalizeTasks();
+
+            loadTargetTaskFromURL();
+
+            if (
+                tasks.some(
+                    task =>
+                        task.timerRunning &&
+                        task.timerEndAt
+                )
+            ) {
+                startGlobalTimerUpdater();
+            }
+
+            renderMusicList();
+        }
+
+        if (isVideosPage()) {
+            renderVideoGrid();
+        }
+
+        initTimeInputs();
+
+        configureMusicFileInput();
+
+        updateSettingsUI();
+
+        setupNotebookPage();
+
+        setupTaskSearchInput("homeTaskSearch", "homeTaskSearchSuggestions");
+        setupTaskSearchInput("navTaskSearch", "navTaskSearchSuggestions");
+
+        initMusicPlayback();
+
+        /*
+         * Close modal by clicking outside.
+         */
+        document
+            .querySelectorAll(".modal-overlay")
+            .forEach(modal => {
+
+                modal.addEventListener(
+                    "click",
+                    event => {
+
+                        if (
+                            event.target === modal
+                        ) {
+                            modal.classList.remove(
+                                "active"
+                            );
+                        }
+                    }
+                );
+            });
+    }
+);
+
+
+/* =========================================================
+   COLOUR MODES
+   Three modes, remembered between pages:
+     - "light"  : white / light grey
+     - "dark"   : black
+     - "focus"  : the normal FocusLab colours (dark navy blue)
+   The mode is a data-theme attribute on <html>; main.css
+   restyles the pages for "light" and "dark". Every page also
+   sets the attribute from a tiny script in its <head> so there
+   is no flash of the wrong colours while the page loads.
+========================================================= */
+
+const SITE_THEMES = ["light", "dark", "focus"];
+
+function getSiteTheme() {
+
+    const saved = localStorage.getItem("focusLab_theme");
+
+    return SITE_THEMES.includes(saved) ? saved : "focus";
+}
+
+function applySiteTheme() {
+
+    const theme = getSiteTheme();
+
+    document.documentElement.setAttribute("data-theme", theme);
+
+    notifyNotebookTheme(theme);
+    updateThemeUI();
+}
+
+function setSiteTheme(theme) {
+
+    if (!SITE_THEMES.includes(theme)) return;
+
+    localStorage.setItem("focusLab_theme", theme);
+
+    applySiteTheme();
+}
+
+function updateThemeUI() {
+
+    const theme = getSiteTheme();
+
+    document.querySelectorAll("[data-theme-option]").forEach(button => {
+
+        const isOn = button.dataset.themeOption === theme;
+
+        button.classList.toggle("on", isOn);
+        button.setAttribute("aria-pressed", String(isOn));
+    });
+}
+
+/* The notebook lives inside an <iframe>, so it is told about the mode with a message. */
+function notifyNotebookTheme(theme) {
+
+    const frame = document.getElementById("nbFrame");
+
+    if (!frame || !frame.contentWindow) return;
+
+    try {
+        frame.contentWindow.postMessage({ focusLab: "theme", mode: theme }, "*");
+    } catch {
+        /* The frame is not ready yet — it asks again when it has loaded. */
+    }
+}
+
+
+/* =========================================================
+   NOTEBOOK PAGE — auto-hiding top bar + burger menu
+   (only runs on pages/notebook.html)
+
+   - the top bar is hidden when the page opens
+   - it slides in when the mouse touches the very top edge of
+     the screen, when the little tab at the top is tapped, or
+     when the notebook (inside its frame) reports that the
+     mouse reached its top edge
+   - it stays while the mouse is over it, and hides again
+     NB_HEADER_HIDE_MS after the mouse (or finger) left it
+   - the burger menu starts closed. If the top bar hides while
+     the menu is open, the menu simply grows up into the space
+     (see .notebook-screen .sidebar in main.css)
+========================================================= */
+
+const NB_EDGE_PX = 6;
+const NB_HEADER_HIDE_MS = 3500;
+
+function setupNotebookPage() {
+
+    if (!document.body.classList.contains("notebook-page")) return;
+
+    const screen  = document.getElementById("app-screen");
+    const header  = document.querySelector(".tasks-header");
+    const peek    = document.getElementById("nbPeek");
+    const scrim   = document.getElementById("nbScrim");
+    const sidebar = document.getElementById("sidebar");
+    const music   = document.getElementById("musicSidebarPanel");
+    const frame   = document.getElementById("nbFrame");
+
+    if (!screen || !header) return;
+
+    let hideTimer = null;
+    let pointerInside = false;
+
+    function showHeader() {
+        screen.classList.add("header-visible");
+        scheduleHide();
+    }
+
+    function scheduleHide() {
+
+        clearTimeout(hideTimer);
+
+        if (pointerInside) return;
+
+        hideTimer = setTimeout(() => {
+            screen.classList.remove("header-visible");
+        }, NB_HEADER_HIDE_MS);
+    }
+
+    /* Mouse at the very top of the page. */
+    document.addEventListener("pointermove", event => {
+        if (event.pointerType === "mouse" && event.clientY <= NB_EDGE_PX) {
+            showHeader();
+        }
+    });
+
+    /* The mouse is over the notebook (inside the frame) and reached its top edge. */
+    window.addEventListener("message", event => {
+        if (event.data && event.data.focusLab === "top-edge") {
+            showHeader();
+        }
+    });
+
+    /* The small tab (the only way on a touch screen). */
+    if (peek) {
+        peek.addEventListener("click", showHeader);
+    }
+
+    /* Stay while it is being used; start the countdown when it is left. */
+    header.addEventListener("pointerenter", () => {
+        pointerInside = true;
+        clearTimeout(hideTimer);
+    });
+
+    header.addEventListener("pointerleave", () => {
+        pointerInside = false;
+        scheduleHide();
+    });
+
+    header.addEventListener("pointerdown", () => {
+        clearTimeout(hideTimer);
+    });
+
+    header.addEventListener("pointerup", () => {
+        if (!pointerInside) scheduleHide();
+        else clearTimeout(hideTimer);
+    });
+
+    /* Tapping the notebook while the menu is open closes the menu. */
+    function menuIsOpen() {
+
+        if (!sidebar) return false;
+
+        const panelOpen = music && music.classList.contains("active");
+
+        if (window.innerWidth <= 800) {
+            return sidebar.classList.contains("open") || panelOpen;
+        }
+
+        return !sidebar.classList.contains("closed") || panelOpen;
+    }
+
+    function syncScrim() {
+        if (scrim) scrim.classList.toggle("on", menuIsOpen());
+    }
+
+    if (scrim) {
+        scrim.addEventListener("click", () => {
+
+            if (music && music.classList.contains("active")) {
+                closeMusicSidebarPanel();
+            }
+
+            if (window.innerWidth <= 800) {
+                sidebar.classList.remove("open");
+            } else if (!sidebar.classList.contains("closed")) {
+                toggleSidebar();
+            }
+
+            syncScrim();
+        });
+    }
+
+    const observer = new MutationObserver(syncScrim);
+
+    [sidebar, music].forEach(element => {
+        if (element) observer.observe(element, { attributes: true, attributeFilter: ["class"] });
+    });
+
+    window.addEventListener("resize", syncScrim);
+
+    /* Give the frame the current colour mode as soon as it has loaded. */
+    if (frame) {
+        frame.addEventListener("load", () => notifyNotebookTheme(getSiteTheme()));
+    }
+
+    syncScrim();
+}
