@@ -56,22 +56,89 @@
     .fr-m{max-width:80%;padding:9px 12px;border-radius:16px 16px 16px 5px;font-size:14px;line-height:1.45;background:var(--f-in);align-self:flex-start;word-wrap:break-word;overflow-wrap:anywhere}
     .fr-m.me{align-self:flex-end;background:#2563eb;color:#fff;border-radius:16px 16px 5px 16px}
     .fr-m small{display:block;margin-top:4px;font-size:10px;opacity:.6;text-align:right}
+    /* ---------- chat bubbles: photos + voice ---------- */
     .fr-m img{display:block;max-width:100%;max-height:300px;border-radius:10px}
-    .fr-m audio{display:block;width:230px;max-width:100%;height:40px}
+    .fr-m img.fr-emo{display:inline-block;width:1.45em;height:1.45em;max-height:none;border-radius:0;vertical-align:-.32em;margin:0 1px}
+    .fr-m img.fr-emo.big{width:44px;height:44px;margin:2px 3px}
+    .fr-img{position:relative;line-height:0;cursor:zoom-in;border-radius:10px;overflow:hidden}
+    .fr-imgdl{position:absolute;right:8px;bottom:8px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:rgba(15,23,42,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;cursor:pointer;transition:background .18s,transform .18s}
+    .fr-imgdl:hover{background:#2563eb}
+    .fr-imgdl:active{transform:scale(.92)}
+    .fr-imgdl svg{width:18px;height:18px}
+
+    .fr-voice{display:flex;align-items:center;gap:10px;width:252px;max-width:100%}
+    .fr-vplay{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;cursor:pointer;background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;box-shadow:0 4px 12px rgba(37,99,235,.35);transition:transform .15s}
+    .fr-vplay:active{transform:scale(.92)}
+    .fr-vplay svg{width:20px;height:20px}
+    .fr-vplay .ic-pause{display:none}
+    .fr-voice.playing .ic-play{display:none}
+    .fr-voice.playing .ic-pause{display:block}
+    .fr-m.me .fr-vplay{background:#fff;color:#2563eb;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+    .fr-vmid{flex:1;min-width:0}
+    .fr-vwave{display:flex;align-items:center;gap:2px;height:30px;cursor:pointer}
+    .fr-vwave i{flex:1;min-width:2px;border-radius:2px;background:rgba(148,163,184,.55);transition:background .12s}
+    .fr-vwave i.on{background:#3b82f6}
+    .fr-m.me .fr-vwave i{background:rgba(255,255,255,.4)}
+    .fr-m.me .fr-vwave i.on{background:#fff}
+    .fr-vtime{display:block;margin-top:2px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;opacity:.75}
+    .fr-vspd{min-width:38px;padding:4px 8px;border-radius:99px;font-size:11px;font-weight:800;flex-shrink:0;cursor:pointer;color:inherit;background:rgba(127,127,127,.18);transition:background .15s}
+    .fr-vspd:hover{background:rgba(127,127,127,.3)}
+    .fr-m.me .fr-vspd{background:rgba(255,255,255,.2)}
+    .fr-m.me .fr-vspd:hover{background:rgba(255,255,255,.32)}
+
+    /* ---------- message bar ---------- */
     .fr-cin{border-top:1px solid var(--f-line);background:var(--f-card);padding:10px 12px;position:relative}
-    .fr-row{display:flex;align-items:center;gap:8px;max-width:760px;margin:0 auto}
-    .fr-field{flex:1;min-width:0;height:44px;border-radius:22px;background:var(--f-field);padding:0 16px;border:1px solid var(--f-line);color:var(--f-text);outline:none}
-    .fr-rb{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:var(--f-mut);flex-shrink:0;position:relative;cursor:pointer}
-    .fr-rb:hover{color:#60a5fa;background:rgba(59,130,246,.1)}
-    .fr-rb svg{width:23px;height:23px}
+    .fr-row{display:flex;align-items:center;gap:10px;max-width:760px;margin:0 auto}
+    .fr-pill{flex:1;min-width:0;display:flex;align-items:center;gap:2px;height:48px;padding:0 5px;border-radius:26px;background:var(--f-field);border:1px solid var(--f-line);transition:border-color .2s,box-shadow .2s}
+    .fr-pill:focus-within{border-color:rgba(59,130,246,.7);box-shadow:0 0 0 3px rgba(59,130,246,.14)}
+    .fr-field{flex:1;min-width:0;height:44px;padding:0 6px;border:0;background:none;color:var(--f-text);outline:none;font-size:15px}
+    .fr-field::placeholder{color:var(--f-mut)}
+    .fr-rb{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:var(--f-mut);flex-shrink:0;position:relative;cursor:pointer;transition:background .18s,color .18s,transform .18s}
+    .fr-rb:hover,.fr-rb.active{color:#60a5fa;background:rgba(59,130,246,.13)}
+    .fr-rb:active{transform:scale(.92)}
+    .fr-rb svg{width:22px;height:22px}
     .fr-rb input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
-    .fr-send{background:#2563eb;color:#fff}.fr-send:hover{background:#3b82f6;color:#fff}
-    .fr-rb.rec{background:#dc2626;color:#fff}
-    .fr-emojis{display:none;position:absolute;bottom:66px;left:12px;padding:10px;border-radius:16px;background:var(--f-card);border:1px solid var(--f-line);box-shadow:0 20px 50px rgba(0,0,0,.35);grid-template-columns:repeat(6,1fr);gap:4px}
-    .fr-emojis.open{display:grid}
-    .fr-emojis button{width:42px;height:42px;border-radius:10px;font-size:24px;cursor:pointer}
-    .fr-rectxt{display:none;flex:1;align-items:center;gap:10px;color:#f87171;font-weight:700}
-    .recording .fr-rectxt{display:flex}.recording .fr-field{display:none}
+    .fr-chtop .fr-rb{width:42px;height:42px}
+    .fr-rb.fr-send{width:48px;height:48px;background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;box-shadow:0 6px 16px rgba(37,99,235,.38)}
+    .fr-rb.fr-send:hover{background:linear-gradient(135deg,#3b82f6,#60a5fa);color:#fff}
+    .fr-rb.fr-send svg{width:21px;height:21px}
+
+    /* emoji picker */
+    .fr-emojis{display:none;position:absolute;bottom:74px;left:12px;padding:10px;border-radius:20px;background:var(--f-card);border:1px solid var(--f-line);box-shadow:0 22px 50px rgba(0,0,0,.38);grid-template-columns:repeat(6,1fr);gap:4px;transform-origin:bottom left}
+    .fr-emojis.open{display:grid;animation:frPop .16s ease-out}
+    @keyframes frPop{from{opacity:0;transform:scale(.9) translateY(6px)}to{opacity:1;transform:none}}
+    .fr-emojis button{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;cursor:pointer;transition:background .15s,transform .15s}
+    .fr-emojis button:hover{background:rgba(59,130,246,.14);transform:translateY(-2px)}
+    .fr-emojis button img{width:32px;height:32px;display:block}
+
+    /* recording bar */
+    .fr-rectxt{display:none;flex:1;min-width:0;align-items:center;gap:10px}
+    .recording .fr-pill{display:none}
+    .recording .fr-rectxt{display:flex}
+    .fr-reccancel{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;cursor:pointer;color:var(--f-mut);background:var(--f-field);border:1px solid var(--f-line);transition:.18s}
+    .fr-reccancel:hover{color:#f87171;border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.1)}
+    .fr-reccancel svg{width:21px;height:21px}
+    .fr-recpill{flex:1;min-width:0;display:flex;align-items:center;gap:12px;height:48px;padding:0 16px;border-radius:26px;background:var(--f-field);border:1px solid rgba(96,165,250,.4)}
+    .fr-recdot{width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;animation:frRecPulse 1.3s infinite}
+    @keyframes frRecPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.55)}70%{box-shadow:0 0 0 8px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+    #frRecT{min-width:34px;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--f-text)}
+    .fr-live{flex:1;min-width:0;height:30px;display:flex;align-items:center;gap:2px;overflow:hidden}
+    .fr-live i{flex:1;max-width:4px;min-height:3px;height:12%;border-radius:3px;background:#60a5fa;transition:height .07s linear}
+
+    /* photo viewer */
+    .fr-viewer{position:fixed;inset:0;z-index:900;display:none;flex-direction:column;background:rgba(3,7,18,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+    .fr-viewer.open{display:flex;animation:frFade .18s ease-out}
+    @keyframes frFade{from{opacity:0}to{opacity:1}}
+    .fr-vtop{display:flex;align-items:center;justify-content:space-between;padding:12px 14px}
+    .fr-vbtn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;transition:background .18s}
+    .fr-vbtn:hover{background:rgba(255,255,255,.2)}
+    .fr-vbtn svg{width:22px;height:22px}
+    .fr-vdl{display:flex;align-items:center;gap:8px;height:44px;padding:0 18px;border-radius:22px;background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 6px 18px rgba(37,99,235,.4);transition:transform .15s}
+    .fr-vdl:active{transform:scale(.96)}
+    .fr-vdl svg{width:20px;height:20px}
+    .fr-vstage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:6px 14px 18px}
+    .fr-vstage img{max-width:100%;max-height:100%;object-fit:contain;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+    @media (prefers-reduced-motion:reduce){.fr-emojis.open,.fr-viewer.open,.fr-recdot{animation:none}}
     .fr-call{position:fixed;inset:0;z-index:800;display:none;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 30%,#12244a,#030712 70%);color:#f8fafc;text-align:center}
     .fr-call.open{display:flex}
     .fr-call .fr-av{width:128px;height:128px;font-size:44px;border-width:3px;box-shadow:0 0 0 14px rgba(59,130,246,.08),0 0 0 30px rgba(59,130,246,.05)}
@@ -338,14 +405,28 @@
         <div class="fr-cin" id="frCin">
             <div class="fr-emojis" id="frEmojis"></div>
             <div class="fr-row">
-                <button class="fr-rb" id="frEmBtn" aria-label="Emoji"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14C9.4 15.5 10.6 16.2 12 16.2C13.4 16.2 14.6 15.5 15.5 14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg></button>
-                <label class="fr-rb" aria-label="Send image"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="10" r="1.6" stroke="currentColor" stroke-width="1.5"/><path d="M4 17L9 12.5L13 16L16 13.5L20 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><input type="file" id="frImg" accept="image/*"></label>
-                <input class="fr-field" id="frTxt" type="text" placeholder="Message">
-                <div class="fr-rectxt"><span>●</span><span id="frRecT">0:00</span><button class="fr-small" id="frRecCancel" type="button">Cancel</button></div>
-                <button class="fr-rb" id="frMic" aria-label="Voice message"><svg viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11.5C5.5 15 8.2 17.5 12 17.5C15.8 17.5 18.5 15 18.5 11.5M12 17.5V21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
-                <button class="fr-rb fr-send" id="frSend" aria-label="Send"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 4L14 20L11.5 13L4 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+                <div class="fr-pill">
+                    <button class="fr-rb" id="frEmBtn" type="button" aria-label="Emoji"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14C9.4 15.5 10.6 16.2 12 16.2C13.4 16.2 14.6 15.5 15.5 14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg></button>
+                    <input class="fr-field" id="frTxt" type="text" placeholder="Message" autocomplete="off">
+                    <label class="fr-rb" aria-label="Send image"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="10" r="1.6" stroke="currentColor" stroke-width="1.5"/><path d="M4 17L9 12.5L13 16L16 13.5L20 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><input type="file" id="frImg" accept="image/*"></label>
+                    <button class="fr-rb" id="frMic" type="button" aria-label="Voice message"><svg viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11.5C5.5 15 8.2 17.5 12 17.5C15.8 17.5 18.5 15 18.5 11.5M12 17.5V21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+                </div>
+                <div class="fr-rectxt">
+                    <button class="fr-reccancel" id="frRecCancel" type="button" aria-label="Cancel recording"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7H20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M9 7V5H15V7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M7 7L8 20H16L17 7" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 11V16M14 11V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+                    <div class="fr-recpill"><i class="fr-recdot"></i><span id="frRecT">0:00</span><div class="fr-live" id="frLive"></div></div>
+                </div>
+                <button class="fr-rb fr-send" id="frSend" type="button" aria-label="Send"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 4L14 20L11.5 13L4 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
             </div>
         </div>
+    </div>
+
+    <!-- PHOTO VIEWER -->
+    <div class="fr-viewer" id="frViewer">
+        <div class="fr-vtop">
+            <button class="fr-vbtn" id="frVClose" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+            <button class="fr-vdl" id="frVDl" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="M12 4V15M7.5 11L12 15.5L16.5 11M5 19.5H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Download</button>
+        </div>
+        <div class="fr-vstage" id="frVStage"><img id="frVImg" alt="Photo"></div>
     </div>
 
     <!-- CALL -->

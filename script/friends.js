@@ -339,16 +339,184 @@
 
     /* chat */
     function timeLabel(ts) { var d = new Date(ts || Date.now()); return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); }
+    /* ---------- drawn emoji: modern flat artwork, identical on every device ---------- */
+    var EMO_DEFS = '<defs>' +
+        '<linearGradient id="f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>' +
+        '<linearGradient id="o" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fb923c"/><stop offset="1" stop-color="#dc2626"/></linearGradient>' +
+        '<linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fb7185"/><stop offset="1" stop-color="#dc2626"/></linearGradient>' +
+        '<linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4ade80"/><stop offset="1" stop-color="#16a34a"/></linearGradient>' +
+        '<linearGradient id="p" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#fbbf24"/><stop offset="1" stop-color="#f97316"/></linearGradient>' +
+        '</defs>';
+    var FACE = '<circle cx="32" cy="32" r="28" fill="url(#f)"/><circle cx="32" cy="32" r="27" fill="none" stroke="#b45309" stroke-opacity=".28" stroke-width="2"/>';
+    var OPEN_MOUTH = '<path d="M16 37C17 48 25 53 32 53C39 53 47 48 48 37Z" fill="#7c2d12"/><path d="M19 37H45C44 40 41 41.5 32 41.5C23 41.5 20 40 19 37Z" fill="#fff"/><path d="M24 50C26 46.5 38 46.5 40 50C37.5 52.3 34.5 53 32 53C29.5 53 26.5 52.3 24 50Z" fill="#fb7185"/>';
+    var HEART_EYE = '<path d="M22.5 34C14 28 15 21 19.5 21C21 21 22 22 22.5 23C23 22 24 21 25.5 21C30 21 31 28 22.5 34Z" fill="#ef4444"/>';
+    var EMO = {
+        "😀": FACE +
+            '<ellipse cx="22.5" cy="26" rx="3.4" ry="4.6" fill="#7c2d12"/><ellipse cx="41.5" cy="26" rx="3.4" ry="4.6" fill="#7c2d12"/>' +
+            '<circle cx="23.6" cy="24.2" r="1.2" fill="#fff"/><circle cx="42.6" cy="24.2" r="1.2" fill="#fff"/>' + OPEN_MOUTH,
+        "😂": FACE +
+            '<path d="M16 28Q22 20 28 28M36 28Q42 20 48 28" fill="none" stroke="#7c2d12" stroke-width="3.6" stroke-linecap="round"/>' +
+            '<path d="M9 31C6 36 6 40 9.5 40C13 40 13 36 9 31Z" fill="#60a5fa"/><path d="M55 31C58 36 58 40 54.5 40C51 40 51 36 55 31Z" fill="#60a5fa"/>' + OPEN_MOUTH,
+        "😍": FACE + HEART_EYE + '<g transform="translate(19 0)">' + HEART_EYE + '</g>' +
+            '<path d="M18 39Q32 54 46 39Q32 45 18 39Z" fill="#7c2d12"/>',
+        "👍": '<rect x="8" y="28" width="12" height="27" rx="3.5" fill="#3b82f6"/>' +
+            '<path d="M22 29L30 12C32 8 39 9 39 14L37 24H52C56 24 58 27 57 30L54 48C53 52 50 54 46 54H22Z" fill="url(#f)" stroke="#b45309" stroke-opacity=".3" stroke-width="2" stroke-linejoin="round"/>' +
+            '<path d="M30 37H52M30 45H50" stroke="#b45309" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>',
+        "🔥": '<path d="M32 5C34 16 46 20 46 36C46 47 40 57 32 57C24 57 18 49 18 39C18 31 23 27 25 20C27 24 28 26 30 26C31 20 30 12 32 5Z" fill="url(#o)"/>' +
+            '<path d="M32 57C26 57 23 51 24.5 46C26 41 30 39 32 32C35 38 40 41 39 47C38 53 36 57 32 57Z" fill="#fde047"/>',
+        "🎉": '<path d="M6 58L18 22L42 46Z" fill="url(#p)"/>' +
+            '<ellipse cx="30" cy="34" rx="17" ry="4.5" transform="rotate(45 30 34)" fill="#c2410c"/>' +
+            '<path d="M12 44L20 52M15 32L30 47" stroke="#fff" stroke-opacity=".5" stroke-width="2.5" stroke-linecap="round"/>' +
+            '<circle cx="44" cy="14" r="3" fill="#22c55e"/><circle cx="54" cy="28" r="2.6" fill="#3b82f6"/><circle cx="56" cy="10" r="2.4" fill="#fbbf24"/>' +
+            '<rect x="29" y="7" width="5" height="10" rx="2" fill="#ef4444" transform="rotate(25 31 12)"/>' +
+            '<path d="M46 36L57 42" stroke="#a855f7" stroke-width="3.5" stroke-linecap="round"/><path d="M22 10L27 17" stroke="#ec4899" stroke-width="3.5" stroke-linecap="round"/>',
+        "📚": '<rect x="7" y="44" width="50" height="13" rx="3.5" fill="#3b82f6"/><rect x="13" y="48.5" width="30" height="3" rx="1.5" fill="#fff" fill-opacity=".55"/>' +
+            '<rect x="11" y="29" width="44" height="13" rx="3.5" fill="#ef4444"/><rect x="17" y="33.5" width="24" height="3" rx="1.5" fill="#fff" fill-opacity=".55"/>' +
+            '<g transform="rotate(-4 30 20)"><rect x="6" y="14" width="48" height="13" rx="3.5" fill="#22c55e"/><rect x="12" y="18.5" width="28" height="3" rx="1.5" fill="#fff" fill-opacity=".55"/></g>',
+        "💪": '<g stroke-linecap="round" stroke-linejoin="round" fill="none">' +
+            '<path d="M21 22L25 44L52 47" stroke="#c2710c" stroke-opacity=".55" stroke-width="19"/>' +
+            '<ellipse cx="40" cy="36" rx="13" ry="10" transform="rotate(-18 40 36)" fill="#c2710c" fill-opacity=".55"/>' +
+            '<path d="M21 22L25 44L52 47" stroke="url(#f)" stroke-width="16"/>' +
+            '<ellipse cx="40" cy="36" rx="11.5" ry="8.5" transform="rotate(-18 40 36)" fill="url(#f)" stroke="none"/></g>' +
+            '<rect x="9" y="5" width="23" height="21" rx="9" fill="url(#f)" stroke="#c2710c" stroke-opacity=".55" stroke-width="2.5"/>' +
+            '<path d="M16 9V16M21 8V16M26 9V16" stroke="#b45309" stroke-opacity=".4" stroke-width="2" stroke-linecap="round"/>' +
+            '<path d="M34 33C39 30 45 32 47 37" fill="none" stroke="#b45309" stroke-opacity=".4" stroke-width="2.4" stroke-linecap="round"/>',
+        "😴": FACE +
+            '<path d="M15 30Q21 34 27 30M37 30Q43 34 49 30" fill="none" stroke="#7c2d12" stroke-width="3.4" stroke-linecap="round"/>' +
+            '<ellipse cx="32" cy="45" rx="5" ry="3.6" fill="#7c2d12"/>' +
+            '<path d="M38 9H47L38 19H48" fill="none" stroke="#3b82f6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+            '<path d="M51 3H57L51 10H58" fill="none" stroke="#60a5fa" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>',
+        "🙏": '<path d="M31 6C22 12 13 24 13 40C13 50 19 58 28 58H31Z" fill="url(#f)" stroke="#b45309" stroke-opacity=".35" stroke-width="2" stroke-linejoin="round"/>' +
+            '<path d="M33 6C42 12 51 24 51 40C51 50 45 58 36 58H33Z" fill="#fcd34d" stroke="#b45309" stroke-opacity=".35" stroke-width="2" stroke-linejoin="round"/>' +
+            '<path d="M25 18L27 30M39 18L37 30" stroke="#b45309" stroke-opacity=".3" stroke-width="2" stroke-linecap="round"/>' +
+            '<rect x="19" y="52" width="26" height="9" rx="3.5" fill="#6366f1"/>' +
+            '<path d="M10 12L15 16M54 12L49 16M5 24L11 26M59 24L53 26" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>',
+        "❤": '<path d="M32 57C9 41 5 28 8 20C11 10 25 8 32 20C39 8 53 10 56 20C59 28 55 41 32 57Z" fill="url(#r)"/>' +
+            '<ellipse cx="19" cy="22" rx="5.5" ry="3" fill="#fff" fill-opacity=".45" transform="rotate(-35 19 22)"/>',
+        "✅": '<rect x="5" y="5" width="54" height="54" rx="15" fill="url(#g)"/>' +
+            '<path d="M18 33L28 43L46 22" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
+    };
+    var emoCache = {};
+    function emoUri(ch) {
+        if (!emoCache[ch]) emoCache[ch] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' + EMO_DEFS + EMO[ch] + '</svg>');
+        return emoCache[ch];
+    }
+    function emoImg(ch, big) {
+        var im = document.createElement("img"); im.className = "fr-emo" + (big ? " big" : "");
+        im.src = emoUri(ch); im.alt = ch; im.draggable = false; return im;
+    }
+    var EMO_RE = new RegExp("(" + Object.keys(EMO).join("|") + ")\\uFE0F?");
+    function richText(parent, text) {
+        var parts = String(text || "").split(EMO_RE), n = 0, other = false, i;
+        for (i = 0; i < parts.length; i++) { if (i % 2) n++; else if (parts[i].trim()) other = true; }
+        var big = n > 0 && n <= 3 && !other;
+        for (i = 0; i < parts.length; i++) {
+            if (i % 2) parent.appendChild(emoImg(parts[i], big));
+            else if (parts[i]) parent.appendChild(document.createTextNode(parts[i]));
+        }
+    }
+
+    /* ---------- icons ---------- */
+    var ICON_PLAY = '<svg class="ic-play" viewBox="0 0 24 24"><path d="M8.5 5.8V18.2C8.5 18.9 9.3 19.4 9.9 19L19 13.1C19.6 12.7 19.6 11.3 19 10.9L9.9 5C9.3 4.6 8.5 5.1 8.5 5.8Z" fill="currentColor"/></svg>';
+    var ICON_PAUSE = '<svg class="ic-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.4" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1.4" fill="currentColor"/></svg>';
+    var ICON_DL = '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4V15M7.5 11L12 15.5L16.5 11M5 19.5H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    /* ---------- waveform helpers ---------- */
+    var WAVE_N = 36, RATES = [1, 1.5, 2], curVoice = null;
+    function resample(a, n) {
+        var o = [];
+        for (var i = 0; i < n; i++) {
+            var s = Math.floor(i * a.length / n), e = Math.max(s + 1, Math.floor((i + 1) * a.length / n)), t = 0;
+            for (var j = s; j < e; j++) t += a[j] || 0;
+            o.push(Math.round(t / (e - s)));
+        }
+        return o;
+    }
+    function seedWave(key, n) {
+        var h = hash(String(key)), out = [], p = 50;
+        for (var i = 0; i < n; i++) { h = (h * 1664525 + 1013904223) >>> 0; p = p * 0.55 + (18 + ((h >>> 8) % 100) * 0.82) * 0.45; out.push(Math.round(p)); }
+        return out;
+    }
+
+    /* ---------- voice message player ---------- */
+    function buildVoice(m) {
+        var w = document.createElement("div"); w.className = "fr-voice";
+        var btn = document.createElement("button"); btn.type = "button"; btn.className = "fr-vplay"; btn.setAttribute("aria-label", "Play voice message");
+        btn.innerHTML = ICON_PLAY + ICON_PAUSE;
+        var mid = document.createElement("div"); mid.className = "fr-vmid";
+        var wave = document.createElement("div"); wave.className = "fr-vwave";
+        var peaks = (m.wf && m.wf.length) ? resample(m.wf, WAVE_N) : seedWave((m.from || "") + (m.ts || m.dur || ""), WAVE_N);
+        var bars = peaks.map(function (v) { var b = document.createElement("i"); b.style.height = Math.max(12, Math.min(100, v)) + "%"; wave.appendChild(b); return b; });
+        var time = document.createElement("span"); time.className = "fr-vtime";
+        mid.appendChild(wave); mid.appendChild(time);
+        var spd = document.createElement("button"); spd.type = "button"; spd.className = "fr-vspd"; spd.textContent = "1×"; spd.setAttribute("aria-label", "Playback speed");
+        w.appendChild(btn); w.appendChild(mid); w.appendChild(spd);
+
+        var a = new Audio(); a.preload = "metadata"; a.src = m.data;
+        var total = Number(m.dur) || 0, rate = 0;
+        function dur() { return total || ((isFinite(a.duration) && a.duration > 0) ? a.duration : 0); }
+        function paint() {
+            var d = dur(), t = a.currentTime || 0, k = d ? Math.round(Math.min(1, t / d) * WAVE_N) : 0;
+            for (var i = 0; i < bars.length; i++) bars[i].classList.toggle("on", i < k);
+            time.textContent = (!a.paused || t > 0.05) ? fmt(Math.floor(t)) : fmt(Math.round(d));
+        }
+        function loop() { paint(); if (!a.paused) requestAnimationFrame(loop); }
+        a.addEventListener("loadedmetadata", paint);
+        a.addEventListener("play", function () { w.classList.add("playing"); btn.setAttribute("aria-label", "Pause"); loop(); });
+        a.addEventListener("pause", function () { w.classList.remove("playing"); btn.setAttribute("aria-label", "Play voice message"); paint(); });
+        a.addEventListener("ended", function () { try { a.currentTime = 0; } catch (e) {} w.classList.remove("playing"); paint(); });
+        btn.onclick = function () {
+            if (!a.paused) { a.pause(); return; }
+            if (curVoice && curVoice !== a) curVoice.pause();
+            curVoice = a; a.playbackRate = RATES[rate];
+            var pr = a.play(); if (pr && pr.catch) pr.catch(function () { toast("Couldn’t play this voice message"); });
+        };
+        spd.onclick = function () { rate = (rate + 1) % RATES.length; a.playbackRate = RATES[rate]; spd.textContent = (RATES[rate] === 1 ? "1" : RATES[rate]) + "×"; };
+        wave.onclick = function (e) {
+            var d = dur(); if (!d) return;
+            var r = wave.getBoundingClientRect(), p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+            try { a.currentTime = p * d; } catch (x) {}
+            paint();
+        };
+        paint();
+        return w;
+    }
+
+    /* ---------- photos: viewer + download ---------- */
+    var viewerSrc = "";
+    function downloadImage(src) {
+        var name = "focuslab-photo-" + Date.now() + ".jpg";
+        function viaLink(href) { var l = document.createElement("a"); l.href = href; l.download = name; document.body.appendChild(l); l.click(); l.remove(); }
+        try {
+            fetch(src).then(function (r) { return r.blob(); }).then(function (b) {
+                var u = URL.createObjectURL(b); viaLink(u); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); toast("Photo saved");
+            }).catch(function () { viaLink(src); });
+        } catch (e) { viaLink(src); }
+    }
+    function openViewer(src) { viewerSrc = src; $("frVImg").src = src; $("frViewer").classList.add("open"); }
+    function closeViewer() { $("frViewer").classList.remove("open"); $("frVImg").removeAttribute("src"); viewerSrc = ""; }
+    function buildPhoto(m) {
+        var box = document.createElement("div"); box.className = "fr-img";
+        var im = new Image(); im.src = m.data; im.alt = "Photo"; box.appendChild(im);
+        var dl = document.createElement("button"); dl.type = "button"; dl.className = "fr-imgdl"; dl.setAttribute("aria-label", "Download photo"); dl.innerHTML = ICON_DL;
+        dl.onclick = function (e) { e.stopPropagation(); downloadImage(m.data); };
+        box.onclick = function () { openViewer(m.data); };
+        box.appendChild(dl);
+        return box;
+    }
+
     function renderMsg(m) {
         var box = $("frMsgs"), mine = m.from === me.id;
         var d = document.createElement("div"); d.className = "fr-m" + (mine ? " me" : "");
-        if (m.type === "img") { var im = new Image(); im.src = m.data; im.alt = "Photo"; d.appendChild(im); }
-        else if (m.type === "voice") { var au = document.createElement("audio"); au.controls = true; au.preload = "metadata"; au.src = m.data; d.appendChild(au); }
-        else { var sp = document.createElement("span"); sp.textContent = m.text || ""; d.appendChild(sp); }
+        if (m.type === "img") d.appendChild(buildPhoto(m));
+        else if (m.type === "voice") d.appendChild(buildVoice(m));
+        else { var sp = document.createElement("span"); richText(sp, m.text); d.appendChild(sp); }
         var t = document.createElement("small"); t.textContent = timeLabel(m.ts); d.appendChild(t);
         var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140 || mine;
         box.appendChild(d);
         if (atBottom) box.scrollTop = box.scrollHeight;
+        var im = d.querySelector(".fr-img img");
+        if (im && atBottom) im.addEventListener("load", function () { box.scrollTop = box.scrollHeight; });
     }
     function markRead(id) { if (!inbox[id]) return; var r = lastRead(); r[id] = inbox[id]; LS.setItem("focusLab_friendRead", JSON.stringify(r)); }
     function openChat(u) {
@@ -370,6 +538,8 @@
         markRead(u.id); renderList();
     }
     function closeChat(keepUi) {
+        if ($("frCin") && isRecording()) finishRec(true);
+        if ($("frViewer")) closeViewer();
         if (chatRef && chatFn) chatRef.off("child_added", chatFn);
         if (chatPeer && chatPeer.stOff) chatPeer.stOff();
         chatRef = null; chatFn = null; chatPeer = null;
@@ -397,9 +567,48 @@
         r.readAsDataURL(file);
     }
 
-    /* voice messages */
+    /* voice messages — live waveform while recording, real peaks stored with the message */
     var rec = null, recChunks = [], recStream = null, recStart = 0, recTick = null, recCancel = false;
-    function stopRecUi() { clearInterval(recTick); $("frCin").classList.remove("recording"); $("frMic").classList.remove("rec"); }
+    var meterCtx = null, meterAn = null, meterBuf = null, meterTimer = null, recLevels = [], liveLv = [], LIVE_N = 24;
+    function buildLive() { var box = $("frLive"); if (!box || box.children.length) return; for (var i = 0; i < LIVE_N; i++) box.appendChild(document.createElement("i")); }
+    function paintLive() {
+        var box = $("frLive"); if (!box) return;
+        var off = LIVE_N - liveLv.length;
+        for (var i = 0; i < box.children.length; i++) {
+            var v = i < off ? 0 : liveLv[i - off];
+            box.children[i].style.height = (12 + 88 * v) + "%";
+        }
+    }
+    function startMeter(st) {
+        recLevels = []; liveLv = []; buildLive(); paintLive();
+        try {
+            var AC = window.AudioContext || window.webkitAudioContext;
+            meterCtx = new AC(); var src = meterCtx.createMediaStreamSource(st);
+            meterAn = meterCtx.createAnalyser(); meterAn.fftSize = 256; src.connect(meterAn);
+            meterBuf = new Uint8Array(meterAn.fftSize);
+        } catch (e) { meterAn = null; }
+        meterTimer = setInterval(function () {
+            var lv;
+            if (meterAn) {
+                meterAn.getByteTimeDomainData(meterBuf);
+                var sum = 0; for (var i = 0; i < meterBuf.length; i++) { var x = (meterBuf[i] - 128) / 128; sum += x * x; }
+                lv = Math.min(1, Math.sqrt(sum / meterBuf.length) * 4.5);
+            } else lv = 0.2 + Math.random() * 0.5;
+            recLevels.push(lv); liveLv.push(lv); if (liveLv.length > LIVE_N) liveLv.shift();
+            paintLive();
+        }, 70);
+    }
+    function stopMeter() {
+        clearInterval(meterTimer); meterTimer = null;
+        if (meterCtx) { try { meterCtx.close(); } catch (e) {} }
+        meterCtx = null; meterAn = null;
+    }
+    function levelsToWave() {
+        if (!recLevels.length) return null;
+        var w = resample(recLevels.map(function (v) { return v * 100; }), WAVE_N), mx = Math.max.apply(null, w) || 1;
+        return w.map(function (v) { return Math.max(10, Math.round(v / mx * 100)); });
+    }
+    function stopRecUi() { clearInterval(recTick); stopMeter(); $("frCin").classList.remove("recording"); }
     function startRec() {
         if (!window.MediaRecorder) { toast("Voice messages aren’t supported on this browser"); return; }
         getMic().then(function (st) {
@@ -410,12 +619,17 @@
             rec.onstop = function () {
                 recStream.getTracks().forEach(function (t) { t.stop(); });
                 if (recCancel || !recChunks.length) return;
-                var blob = new Blob(recChunks, { type: rec.mimeType || "audio/webm" }), fr = new FileReader();
-                fr.onload = function () { send({ type: "voice", data: fr.result, dur: Math.max(1, Math.round((Date.now() - recStart) / 1000)) }); };
+                var blob = new Blob(recChunks, { type: rec.mimeType || "audio/webm" }), fr = new FileReader(), wf = levelsToWave();
+                fr.onload = function () {
+                    var msg = { type: "voice", data: fr.result, dur: Math.max(1, Math.round((Date.now() - recStart) / 1000)) };
+                    if (wf) msg.wf = wf;
+                    send(msg);
+                };
                 fr.readAsDataURL(blob);
             };
             rec.start(); recStart = Date.now();
-            $("frCin").classList.add("recording"); $("frMic").classList.add("rec"); $("frRecT").textContent = "0:00";
+            $("frCin").classList.add("recording"); $("frRecT").textContent = "0:00";
+            startMeter(st);
             recTick = setInterval(function () {
                 var s = Math.round((Date.now() - recStart) / 1000); $("frRecT").textContent = fmt(s);
                 if (s >= 120) finishRec(false);
@@ -423,6 +637,7 @@
         }).catch(function () { toast("Microphone permission is needed"); });
     }
     function finishRec(cancel) { if (!rec || rec.state === "inactive") return; recCancel = cancel; stopRecUi(); rec.stop(); }
+    function isRecording() { return $("frCin").classList.contains("recording"); }
 
     function initUI() {
         loadList();
@@ -453,15 +668,26 @@
 
         $("frBack").onclick = function () { closeChat(); };
         $("frChCall").onclick = function () { if (chatPeer) startCall(chatPeer); };
-        $("frSend").onclick = sendText;
+        $("frSend").onclick = function () { if (isRecording()) finishRec(false); else sendText(); };
         $("frTxt").onkeydown = function (e) { if (e.key === "Enter") sendText(); };
         $("frImg").onchange = function () { var f = this.files[0]; this.value = ""; if (f && /^image\//.test(f.type)) sendImage(f); };
         ["😀", "😂", "😍", "👍", "🔥", "🎉", "📚", "💪", "😴", "🙏", "❤️", "✅"].forEach(function (e) {
-            var b = document.createElement("button"); b.type = "button"; b.textContent = e;
-            b.onclick = function () { $("frTxt").value += e; $("frEmojis").classList.remove("open"); $("frTxt").focus(); };
+            var b = document.createElement("button"); b.type = "button"; b.setAttribute("aria-label", e);
+            b.appendChild(emoImg(e.replace("\uFE0F", ""), false));
+            b.onclick = function () { $("frTxt").value += e; setEmojiOpen(false); $("frTxt").focus(); };
             $("frEmojis").appendChild(b);
         });
-        $("frEmBtn").onclick = function () { $("frEmojis").classList.toggle("open"); };
+        function setEmojiOpen(on) { $("frEmojis").classList.toggle("open", on); $("frEmBtn").classList.toggle("active", on); }
+        $("frEmBtn").onclick = function () { setEmojiOpen(!$("frEmojis").classList.contains("open")); };
+        document.addEventListener("click", function (e) {
+            if (!$("frEmojis").classList.contains("open")) return;
+            if ($("frEmojis").contains(e.target) || $("frEmBtn").contains(e.target)) return;
+            setEmojiOpen(false);
+        });
+        $("frVClose").onclick = closeViewer;
+        $("frVDl").onclick = function () { if (viewerSrc) downloadImage(viewerSrc); };
+        $("frVStage").onclick = function (e) { if (e.target === this) closeViewer(); };
+        document.addEventListener("keydown", function (e) { if (e.key === "Escape" && $("frViewer").classList.contains("open")) closeViewer(); });
         $("frMic").onclick = function () { if ($("frCin").classList.contains("recording")) finishRec(false); else startRec(); };
         $("frRecCancel").onclick = function () { finishRec(true); };
 

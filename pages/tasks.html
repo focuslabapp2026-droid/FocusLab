@@ -432,11 +432,43 @@
 
             <label>Priority</label>
 
-            <select id="priorityInput">
-                <option value="Normal">Normal</option>
-                <option value="Important">Important</option>
-                <option value="Study">Study</option>
-            </select>
+            <!-- Custom priority list: opens right under the box. The chosen value
+                 lives in the hidden #priorityInput, so createTask() is unchanged. -->
+            <input type="hidden" id="priorityInput" value="Normal">
+
+            <div class="priority-dd" id="priorityDd" data-value="Normal">
+
+                <button type="button" class="priority-dd-trigger" id="priorityDdTrigger"
+                        aria-haspopup="listbox" aria-expanded="false"
+                        onclick="togglePriorityDropdown()">
+                    <span class="pdd-ico" id="priorityDdIco"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 12L10.8 14.3L15.5 9.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                    <span class="pdd-label" id="priorityDdLabel">Normal</span>
+                    <svg class="pdd-chev" viewBox="0 0 24 24" fill="none"><path d="M6 9.5L12 15.5L18 9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+
+                <div class="priority-dd-menu" id="priorityOptions" role="listbox">
+                    <div class="pdd-inner">
+                        <div class="pdd-list">
+                        <button type="button" class="priority-chip active" data-priority="Normal" role="option" aria-selected="true" onclick="selectPriority('Normal')">
+                            <span class="pdd-ico"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 12L10.8 14.3L15.5 9.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                            <span class="pdd-text"><strong>Normal</strong><small>Everyday tasks</small></span>
+                            <svg class="pdd-check" viewBox="0 0 24 24" fill="none"><path d="M5 12.5L10 17.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button type="button" class="priority-chip" data-priority="Important" role="option" aria-selected="false" onclick="selectPriority('Important')">
+                            <span class="pdd-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5L14.6 8.8L20.5 9.6L16.2 13.7L17.2 19.5L12 16.8L6.8 19.5L7.8 13.7L3.5 9.6L9.4 8.8L12 3.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+                            <span class="pdd-text"><strong>Important</strong><small>Needs your attention first</small></span>
+                            <svg class="pdd-check" viewBox="0 0 24 24" fill="none"><path d="M5 12.5L10 17.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button type="button" class="priority-chip" data-priority="Study" role="option" aria-selected="false" onclick="selectPriority('Study')">
+                            <span class="pdd-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5C4 4.67 4.67 4 5.5 4H11V19H5.5C4.67 19 4 18.33 4 17.5V5.5Z" stroke="currentColor" stroke-width="1.6"/><path d="M20 5.5C20 4.67 19.33 4 18.5 4H13V19H18.5C19.33 19 20 18.33 20 17.5V5.5Z" stroke="currentColor" stroke-width="1.6"/><path d="M11 6H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                            <span class="pdd-text"><strong>Study</strong><small>Learning and revision</small></span>
+                            <svg class="pdd-check" viewBox="0 0 24 24" fill="none"><path d="M5 12.5L10 17.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
 
             <button class="modal-submit-button" onclick="createTask()">
                 Start Task

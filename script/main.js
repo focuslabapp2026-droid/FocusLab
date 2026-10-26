@@ -858,6 +858,8 @@ function openAddTaskModal() {
 
 function closeAddTaskModal() {
 
+    closePriorityDropdown();
+
     const modal = document.getElementById("addTaskModal");
 
     if (modal) {
@@ -882,9 +884,70 @@ function selectPriority(value) {
     document
         .querySelectorAll("#priorityOptions .priority-chip")
         .forEach(chip => {
-            chip.classList.toggle("active", chip.dataset.priority === value);
+            const on = chip.dataset.priority === value;
+            chip.classList.toggle("active", on);
+            chip.setAttribute("aria-selected", on ? "true" : "false");
+
+            /* Mirror the chosen row (icon + name) on the closed box. */
+            if (on) {
+                const ico = document.getElementById("priorityDdIco");
+                const label = document.getElementById("priorityDdLabel");
+                const chipIco = chip.querySelector(".pdd-ico");
+                if (ico && chipIco) ico.innerHTML = chipIco.innerHTML;
+                if (label) label.textContent = value;
+            }
         });
+
+    const dd = document.getElementById("priorityDd");
+
+    if (dd) {
+        dd.dataset.value = value;
+    }
+
+    closePriorityDropdown();
 }
+
+/* Priority list: opens right under the box, closes on pick,
+   outside click, Esc, or when the window closes. */
+function togglePriorityDropdown() {
+
+    const dd = document.getElementById("priorityDd");
+    const trigger = document.getElementById("priorityDdTrigger");
+
+    if (!dd) return;
+
+    const open = !dd.classList.contains("open");
+
+    dd.classList.toggle("open", open);
+
+    if (trigger) trigger.setAttribute("aria-expanded", open ? "true" : "false");
+
+    if (open) {
+        setTimeout(() => {
+            dd.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }, 260);
+    }
+}
+
+function closePriorityDropdown() {
+
+    const dd = document.getElementById("priorityDd");
+    const trigger = document.getElementById("priorityDdTrigger");
+
+    if (dd) dd.classList.remove("open");
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+}
+
+document.addEventListener("click", event => {
+    const dd = document.getElementById("priorityDd");
+    if (dd && dd.classList.contains("open") && !dd.contains(event.target)) {
+        closePriorityDropdown();
+    }
+});
+
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closePriorityDropdown();
+});
 
 
 /* =========================================================

@@ -2759,3 +2759,209 @@ html[data-theme="dark"] .site-footer {background:rgba(5,5,5,.92)}
 
 html[data-theme="light"] * { scrollbar-color: #93c5fd rgba(15,23,42,.06); }
 html[data-theme="light"] ::-webkit-scrollbar-track { background: rgba(15,23,42,.06); }
+
+/* =========================================================
+   PRIORITY LIST (Create New Task window)
+   Replaces the browser's own <select> popup. Opens right
+   under the box and pushes "Start Task" down, so it is never
+   clipped by the window.
+========================================================= */
+
+.priority-dd {
+    position: relative;
+}
+
+.priority-dd-trigger {
+    width: 100%;
+    height: 47px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 0 13px 0 9px;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 10px;
+    background: #0b1324;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.priority-dd-trigger:hover {
+    border-color: rgba(59,130,246,.35);
+}
+
+.priority-dd.open .priority-dd-trigger,
+.priority-dd-trigger:focus-visible {
+    border-color: rgba(59,130,246,.55);
+    box-shadow: 0 0 0 3px rgba(59,130,246,.14);
+    outline: none;
+}
+
+.pdd-ico {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border-radius: 9px;
+    background: rgba(59,130,246,.13);
+    color: #60a5fa;
+}
+
+.pdd-ico svg {
+    width: 17px;
+    height: 17px;
+}
+
+.priority-dd[data-value="Important"] .priority-dd-trigger .pdd-ico,
+.priority-chip[data-priority="Important"] .pdd-ico {
+    background: rgba(245,158,11,.14);
+    color: #fbbf24;
+}
+
+.priority-dd[data-value="Study"] .priority-dd-trigger .pdd-ico,
+.priority-chip[data-priority="Study"] .pdd-ico {
+    background: rgba(139,92,246,.15);
+    color: #a78bfa;
+}
+
+.pdd-label {
+    flex: 1;
+}
+
+.pdd-chev {
+    width: 18px;
+    height: 18px;
+    color: #94a3b8;
+    transition: transform .25s ease;
+}
+
+.priority-dd.open .pdd-chev {
+    transform: rotate(180deg);
+}
+
+/* the list: slides open under the box */
+.priority-dd-menu {
+    display: grid;
+    grid-template-rows: 0fr;
+    visibility: hidden;
+    transition: grid-template-rows .25s ease, visibility 0s linear .25s;
+}
+
+.priority-dd.open .priority-dd-menu {
+    grid-template-rows: 1fr;
+    visibility: visible;
+    transition: grid-template-rows .25s ease, visibility 0s;
+}
+
+.pdd-inner {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.pdd-list {
+    margin-top: 8px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-radius: 12px;
+    background: #0b1324;
+    border: 1px solid rgba(255,255,255,.08);
+}
+
+.priority-chip {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px 8px 8px;
+    border-radius: 9px;
+    background: none;
+    color: #e2e8f0;
+    text-align: left;
+    cursor: pointer;
+    transition: background .15s;
+}
+
+.priority-chip:hover {
+    background: rgba(255,255,255,.05);
+}
+
+.priority-chip.active {
+    background: rgba(59,130,246,.12);
+}
+
+.priority-chip .pdd-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.priority-chip strong {
+    font-size: 14px;
+}
+
+.priority-chip small {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.pdd-check {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: #60a5fa;
+    opacity: 0;
+    transition: opacity .15s;
+}
+
+.priority-chip.active .pdd-check {
+    opacity: 1;
+}
+
+html[data-theme="dark"] .priority-dd-trigger,
+html[data-theme="dark"] .pdd-list {
+    background: #050505;
+}
+
+html[data-theme="light"] .priority-dd-trigger,
+html[data-theme="light"] .pdd-list {
+    background: #f8fafc;
+    border-color: rgba(15,23,42,.12);
+    color: #0f172a;
+}
+
+html[data-theme="light"] .priority-chip {
+    color: #0f172a;
+}
+
+html[data-theme="light"] .priority-chip:hover {
+    background: rgba(15,23,42,.05);
+}
+
+html[data-theme="light"] .priority-chip.active {
+    background: rgba(59,130,246,.12);
+}
+
+html[data-theme="light"] .priority-dd[data-value="Important"] .priority-dd-trigger .pdd-ico,
+html[data-theme="light"] .priority-chip[data-priority="Important"] .pdd-ico {
+    color: #d97706;
+}
+
+html[data-theme="light"] .priority-dd[data-value="Study"] .priority-dd-trigger .pdd-ico,
+html[data-theme="light"] .priority-chip[data-priority="Study"] .pdd-ico {
+    color: #7c3aed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .priority-dd-menu,
+    .pdd-chev {
+        transition: none;
+    }
+}
