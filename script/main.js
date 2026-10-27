@@ -858,8 +858,6 @@ function openAddTaskModal() {
 
 function closeAddTaskModal() {
 
-    closePriorityDropdown();
-
     const modal = document.getElementById("addTaskModal");
 
     if (modal) {
@@ -884,69 +882,32 @@ function selectPriority(value) {
     document
         .querySelectorAll("#priorityOptions .priority-chip")
         .forEach(chip => {
-            const on = chip.dataset.priority === value;
-            chip.classList.toggle("active", on);
-            chip.setAttribute("aria-selected", on ? "true" : "false");
-
-            /* Mirror the chosen row (icon + name) on the closed box. */
-            if (on) {
-                const ico = document.getElementById("priorityDdIco");
-                const label = document.getElementById("priorityDdLabel");
-                const chipIco = chip.querySelector(".pdd-ico");
-                if (ico && chipIco) ico.innerHTML = chipIco.innerHTML;
-                if (label) label.textContent = value;
-            }
+            chip.classList.toggle("active", chip.dataset.priority === value);
         });
 
-    const dd = document.getElementById("priorityDd");
+    const label = document.getElementById("prioLabel");
+    const dot = document.getElementById("prioDot");
 
-    if (dd) {
-        dd.dataset.value = value;
-    }
-
-    closePriorityDropdown();
+    if (label) label.textContent = value;
+    if (dot) dot.className = "prio-dot p-" + value.toLowerCase();
 }
 
-/* Priority list: opens right under the box, closes on pick,
-   outside click, Esc, or when the window closes. */
-function togglePriorityDropdown() {
+/* Opens / closes the little priority pop-up under the button. */
+function togglePrioMenu(force) {
 
-    const dd = document.getElementById("priorityDd");
-    const trigger = document.getElementById("priorityDdTrigger");
+    const dd = document.getElementById("prioDd");
+    const btn = document.getElementById("prioBtn");
 
     if (!dd) return;
 
-    const open = !dd.classList.contains("open");
+    const open = typeof force === "boolean" ? force : !dd.classList.contains("open");
 
     dd.classList.toggle("open", open);
-
-    if (trigger) trigger.setAttribute("aria-expanded", open ? "true" : "false");
-
-    if (open) {
-        setTimeout(() => {
-            dd.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        }, 260);
-    }
+    if (btn) btn.setAttribute("aria-expanded", String(open));
 }
 
-function closePriorityDropdown() {
-
-    const dd = document.getElementById("priorityDd");
-    const trigger = document.getElementById("priorityDdTrigger");
-
-    if (dd) dd.classList.remove("open");
-    if (trigger) trigger.setAttribute("aria-expanded", "false");
-}
-
-document.addEventListener("click", event => {
-    const dd = document.getElementById("priorityDd");
-    if (dd && dd.classList.contains("open") && !dd.contains(event.target)) {
-        closePriorityDropdown();
-    }
-});
-
-document.addEventListener("keydown", event => {
-    if (event.key === "Escape") closePriorityDropdown();
+document.addEventListener("click", function (e) {
+    if (!e.target.closest || !e.target.closest("#prioDd")) togglePrioMenu(false);
 });
 
 
@@ -4754,3 +4715,1073 @@ function setupNotebookPage() {
 
     syncScrim();
 }
+
+
+/* =========================================================
+   FRIENDS — Firebase Realtime Database
+   unique IDs + presence, chat (text / images / voice / files as
+   Base64 inside normal messages), groups, replies, delete,
+   P2P voice calls (1:1 and group, WebRTC mesh) with an
+   incoming-call banner on every page.
+========================================================= */
+(function () {
+
+    if (typeof firebase === "undefined") return;
+    if (localStorage.getItem("focusLab_signedIn") !== "true") return;
+
+    var firebaseConfig = {
+        apiKey: "AIzaSyDlwl5-XURif342D5JQCCTsoqazKLHOl9U",
+        authDomain: "focuslab-e25da.firebaseapp.com",
+        databaseURL: "https://focuslab-e25da-default-rtdb.firebaseio.com",
+        projectId: "focuslab-e25da",
+        storageBucket: "focuslab-e25da.firebasestorage.app",
+        messagingSenderId: "534017418669",
+        appId: "1:534017418669:web:3f034da163d06b90b02d24"
+    };
+
+    /* STUN only. If some networks cannot connect, add a TURN server here. */
+    var ICE = { iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }] };
+    var MAX_FILE = 700 * 1024;
+
+    try { if (!firebase.apps.length) firebase.initializeApp(firebaseConfig); } catch (e) { return; }
+
+    var database = firebase.database();
+    var TS = firebase.database.ServerValue.TIMESTAMP;
+    var IN_PAGES = location.pathname.indexOf("/pages/") > -1;
+    var ROOT = IN_PAGES ? "../" : "";
+    var FRIENDS_URL = IN_PAGES ? "friends.html" : "pages/friends.html";
+    var HAS_UI = !!document.getElementById("frRoot");
+    var LS = localStorage;
+    var $ = function (id) { return document.getElementById(id); };
+
+    var me = { id: "", name: "", avatar: "" };
+    var token = LS.getItem("focusLab_friendToken");
+    if (!token) { token = Math.random().toString(36).slice(2) + Date.now().toString(36); LS.setItem("focusLab_friendToken", token); }
+    var autoAccept = new URLSearchParams(location.search).get("accept");
+
+    /* ---------- helpers ---------- */
+    function cleanId(s) { return String(s || "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16); }
+    function genId() { return "FL-" + Math.floor(10000 + Math.random() * 90000); }
+    function hash(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+    function initials(n) { return String(n || "?").trim().split(/\s+/).slice(0, 2).map(function (w) { return w[0]; }).join("").toUpperCase(); }
+    function avSrc(a) {
+        if (!a) return "";
+        if (/^(data:|https?:)/.test(a)) return a;
+        return ROOT + a.replace(/^(\.\.\/)+/, "").replace(/^\//, "");
+    }
+    function avatarEl(u) {
+        var d = document.createElement("div");
+        d.className = "fr-av";
+        var hue = hash(u.id || u.name || "x") % 360;
+        d.style.background = "linear-gradient(135deg,hsl(" + hue + ",70%,45%),hsl(" + (hue + 40) + ",75%,62%))";
+        d.textContent = initials(u.name);
+        var src = avSrc(u.avatar || u.photo);
+        if (src) { var i = new Image(); i.alt = ""; i.onload = function () { d.textContent = ""; d.appendChild(i); }; i.src = src; }
+        return d;
+    }
+    function fmt(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+    function size(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+    function pairKey(a, b) { return [a, b].sort().join("__"); }
+    function mk(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    var userCache = {};
+    var blocked = {};
+    try { blocked = JSON.parse(LS.getItem("focusLab_blocked") || "{}") || {}; } catch (e) { blocked = {}; }
+    function saveBlocked() { LS.setItem("focusLab_blocked", JSON.stringify(blocked)); }
+    var MAX_UPLOAD = 50 * 1048576;
+    var I_BAN = '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 17.5L17.5 6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    var I_DL = '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4V15M7.5 10.5L12 15L16.5 10.5M5 19.5H19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    var I_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5V18.5L19 12Z"/></svg>';
+    var I_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>';
+    var I_FILE = '<svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5H14L19 8.5V20.5H7V3.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 3.5V8.5H19" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+    function download(src, name) {
+        var go = function (href, rev) { var a = document.createElement("a"); a.href = href; a.download = name || "file"; document.body.appendChild(a); a.click(); a.remove(); if (rev) setTimeout(function () { URL.revokeObjectURL(href); }, 4000); };
+        if (/^data:/.test(src)) return go(src);
+        fetch(src).then(function (r) { return r.blob(); }).then(function (b) { go(URL.createObjectURL(b), 1); }).catch(function () { window.open(src, "_blank"); });
+    }
+    function dlBtn(src, name) { var b = mk("button", "fr-dlb"); b.type = "button"; b.title = "Download"; b.innerHTML = I_DL; b.onclick = function (e) { e.stopPropagation(); download(src, name); }; return b; }
+    function fetchUser(id) {
+        return database.ref("users/" + id).once("value").then(function (s) {
+            var v = s.val(); if (!v) return null;
+            var u = { id: id, name: v.name || id, avatar: v.avatar || "", online: v.online === true };
+            userCache[id] = u; return u;
+        });
+    }
+    function toast(t) {
+        var e = $("frToast"); if (!e) return;
+        e.textContent = t; e.classList.add("show");
+        clearTimeout(toast.t); toast.t = setTimeout(function () { e.classList.remove("show"); }, 2600);
+    }
+    function shrink(file, max, cb) {
+        var r = new FileReader();
+        r.onload = function () {
+            var img = new Image();
+            img.onload = function () {
+                var k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
+                c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+                c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+                cb(c.toDataURL("image/jpeg", 0.74));
+            };
+            img.onerror = function () { toast("Couldn’t read that image"); };
+            img.src = r.result;
+        };
+        r.readAsDataURL(file);
+    }
+
+    /* ---------- identity ---------- */
+    function claim(id) {
+        return database.ref("users/" + id + "/owner").transaction(function (cur) {
+            return (cur === null || cur === token) ? token : undefined;
+        }).then(function (r) { return r.committed && r.snapshot.val() === token; });
+    }
+    async function ensureId() {
+        var id = cleanId(LS.getItem("focusLab_friendId")) || genId();
+        for (var n = 0; n < 10; n++) { if (await claim(id)) return id; id = genId(); }
+        throw new Error("Could not get an ID");
+    }
+    function readProfile() {
+        var first = LS.getItem("focusLab_firstName") || "Focus", last = LS.getItem("focusLab_lastName") || "User";
+        me.name = (LS.getItem("focusLab_friendName") || (first + " " + last)).trim();
+        me.avatar = LS.getItem("focusLab_avatarSrc") || "images/avatars/avatar1.jpeg";
+    }
+    function findUser(raw) {
+        var id = cleanId(raw);
+        if (!id) return Promise.resolve(null);
+        return fetchUser(id);
+    }
+
+    /* ---------- incoming-call banner (every page) ---------- */
+    var bannerEl = null, incoming = null;
+    function buildBanner() {
+        bannerEl = document.createElement("div");
+        bannerEl.id = "frBanner";
+        bannerEl.innerHTML =
+            '<div id="frBnAv"></div><div class="fr-w"><strong id="frBnName"></strong><small id="frBnSub">is calling you…</small></div>' +
+            '<button class="no" id="frBnNo" aria-label="Decline"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>' +
+            '<button class="yes" id="frBnYes" aria-label="Accept"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5L10 17.5L19 7" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
+        document.body.appendChild(bannerEl);
+        $("frBnNo").onclick = function () { declineCall(incoming); };
+        $("frBnYes").onclick = function () {
+            var inc = incoming; hideBanner();
+            if (HAS_UI) acceptCall(inc); else location.href = FRIENDS_URL + "?accept=" + encodeURIComponent(inc.callId);
+        };
+    }
+    function showBanner(v) {
+        incoming = v;
+        fetchUser(v.from).then(function (u) {
+            if (!incoming || incoming.callId !== v.callId) return;
+            u = u || { id: v.from, name: v.from, avatar: "" };
+            var box = $("frBnAv"); box.innerHTML = ""; box.appendChild(avatarEl(u));
+            $("frBnName").textContent = u.name;
+            $("frBnSub").textContent = v.label ? "is calling you · " + v.label : "is calling you…";
+            bannerEl.classList.add("show");
+        });
+    }
+    function hideBanner() { incoming = null; if (bannerEl) bannerEl.classList.remove("show"); }
+    function declineCall(v) {
+        hideBanner(); if (!v) return;
+        database.ref("calls/" + v.callId + "/declined/" + me.id).set(true);
+        database.ref("incoming/" + me.id).remove();
+    }
+    function listenIncoming() {
+        database.ref("incoming/" + me.id).on("value", function (s) {
+            var v = s.val();
+            if (!v) { hideBanner(); return; }
+            if (blocked[v.from]) { database.ref("incoming/" + me.id).remove(); return; }
+            if (callActive) { declineCall(v); return; }
+            if (autoAccept && v.callId === autoAccept && HAS_UI) { autoAccept = null; acceptCall(v); return; }
+            showBanner(v);
+        });
+    }
+
+    /* ---------- call engine: 1:1 and group (mesh) ---------- */
+    var callActive = false, callId = null, localStream = null, peers = {}, parts = {}, invited = {}, declinedN = 0;
+    var callRefs = [], ringT = null, callTimer = null, callSec = 0, callLabel = "", muted = false, spkOn = false;
+    var actx = null, mineTs = 0, connectedOnce = false;
+    var speak = {}, vad = {}, vadT = null;
+    function levelWatch(uid, stream) {
+        try {
+            if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+            if (actx.state === "suspended") actx.resume();
+            var an = actx.createAnalyser(); an.fftSize = 512;
+            var src = actx.createMediaStreamSource(stream); src.connect(an);
+            vad[uid] = { an: an, src: src, buf: new Uint8Array(an.fftSize), last: 0 };
+            if (!vadT) vadT = setInterval(vadTick, 110);
+        } catch (e) {}
+    }
+    function vadTick() {
+        var now = Date.now();
+        Object.keys(vad).forEach(function (uid) {
+            var v = vad[uid]; v.an.getByteTimeDomainData(v.buf);
+            var s = 0; for (var i = 0; i < v.buf.length; i++) { var x = (v.buf[i] - 128) / 128; s += x * x; }
+            if (Math.sqrt(s / v.buf.length) > 0.04 && !(uid === me.id && muted)) v.last = now;
+            var on = now - v.last < 450;
+            if (on && !speak[uid]) speak[uid] = { c: "hsl(" + Math.floor(Math.random() * 360) + ",90%,62%)" };
+            if (!on && speak[uid]) delete speak[uid];
+            var el = document.querySelector('.fr-part[data-uid="' + uid + '"]');
+            if (el) { el.classList.toggle("speaking", !!speak[uid]); if (speak[uid]) el.style.setProperty("--sp", speak[uid].c); }
+        });
+    }
+    function levelStop() { clearInterval(vadT); vadT = null; Object.keys(vad).forEach(function (u) { try { vad[u].src.disconnect(); } catch (e) {} }); vad = {}; speak = {}; }
+    function selfPart() { userCache[me.id] = me; parts[me.id] = { user: me, status: "You" }; renderParts(); }
+
+    function getMic() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject(new Error("no-mic"));
+        return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    }
+    function watch(ref, ev, fn) { var f = ref.on(ev, fn); callRefs.push({ ref: ref, ev: ev, fn: f }); }
+    function renderParts() {
+        var box = $("frParts"); if (!box) return; box.innerHTML = "";
+        var ids = Object.keys(parts);
+        box.className = "fr-parts n" + Math.min(ids.length, 6);
+        ids.forEach(function (id) {
+            var p = parts[id], t = mk("div", "fr-part" + (speak[id] ? " speaking" : "")); t.dataset.uid = id;
+            if (speak[id]) t.style.setProperty("--sp", speak[id].c);
+            t.appendChild(avatarEl(p.user));
+            t.appendChild(mk("strong", "", id === me.id ? p.user.name + " (you)" : p.user.name));
+            t.appendChild(mk("small", "", p.status));
+            box.appendChild(t);
+        });
+    }
+    function setPart(uid, status, user) {
+        if (!parts[uid]) parts[uid] = { user: user || userCache[uid] || { id: uid, name: uid, avatar: "" }, status: status || "" };
+        if (status) parts[uid].status = status;
+        if (user) parts[uid].user = user;
+        renderParts();
+        if (!userCache[uid]) fetchUser(uid).then(function (u) { if (u && parts[uid]) { parts[uid].user = u; renderParts(); } });
+    }
+    function openCallUI(title) {
+        callLabel = title; $("frClName").textContent = title; $("frClSt").textContent = "Calling…";
+        muted = false; spkOn = false; $("frClMute").classList.remove("on"); $("frClSpk").classList.remove("on");
+        $("frAddBox").classList.remove("open"); $("frCall").classList.add("open");
+    }
+    function markConnected() {
+        if (connectedOnce) return;
+        connectedOnce = true; clearTimeout(ringT); callSec = 0; $("frClSt").textContent = "0:00";
+        callTimer = setInterval(function () { callSec++; $("frClSt").textContent = fmt(callSec); }, 1000);
+    }
+    function addCand(p, c) {
+        if (p.pc.remoteDescription) p.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {});
+        else p.pending.push(c);
+    }
+    function flushCands(p) { var l = p.pending; p.pending = []; l.forEach(function (c) { addCand(p, c); }); }
+    function makePeer(uid, key, offerer) {
+        if (peers[uid]) return peers[uid];
+        var p = { pc: new RTCPeerConnection(ICE), pending: [], stream: null, audio: null, src: null, gain: null };
+        peers[uid] = p; setPart(uid, "Connecting…");
+        localStream.getTracks().forEach(function (t) { p.pc.addTrack(t, localStream); });
+        var sref = database.ref("sig/" + callId + "/" + key);
+        p.pc.onicecandidate = function (e) { if (e.candidate) sref.child(offerer ? "ca" : "cb").push(e.candidate.toJSON()); };
+        p.pc.ontrack = function (e) {
+            p.stream = e.streams[0];
+            var a = document.createElement("audio"); a.autoplay = true; a.setAttribute("playsinline", ""); a.srcObject = p.stream; a.volume = 0.45; levelWatch(uid, p.stream);
+            $("frAudios").appendChild(a); p.audio = a;
+            var pr = a.play(); if (pr && pr.catch) pr.catch(function () {});
+            if (spkOn) applySpeaker();
+        };
+        p.pc.onconnectionstatechange = function () {
+            var s = p.pc.connectionState;
+            if (s === "connected") { setPart(uid, "Connected"); markConnected(); }
+            else if (s === "failed") { closePeer(uid); toast("Connection to " + (parts[uid] ? parts[uid].user.name : "a friend") + " failed"); checkAlone(); }
+        };
+        watch(sref.child(offerer ? "cb" : "ca"), "child_added", function (s) { addCand(p, s.val()); });
+        return p;
+    }
+    async function offerTo(uid) {
+        var key = me.id + "__" + uid, p = makePeer(uid, key, true);
+        var offer = await p.pc.createOffer(); await p.pc.setLocalDescription(offer);
+        var sref = database.ref("sig/" + callId + "/" + key);
+        await sref.child("offer").set({ type: offer.type, sdp: offer.sdp });
+        watch(sref.child("answer"), "value", function (s) {
+            var v = s.val(); if (v && !p.pc.remoteDescription) p.pc.setRemoteDescription(v).then(function () { flushCands(p); });
+        });
+    }
+    async function answerFrom(uid, offer) {
+        var key = uid + "__" + me.id, p = makePeer(uid, key, false);
+        await p.pc.setRemoteDescription(offer);
+        var ans = await p.pc.createAnswer(); await p.pc.setLocalDescription(ans);
+        await database.ref("sig/" + callId + "/" + key + "/answer").set({ type: ans.type, sdp: ans.sdp });
+        flushCands(p);
+    }
+    function closePeer(uid) {
+        var p = peers[uid]; if (!p) return;
+        try { if (p.src) p.src.disconnect(); } catch (e) {}
+        try { if (vad[uid]) { vad[uid].src.disconnect(); delete vad[uid]; } delete speak[uid]; } catch (e) {}
+        try { p.pc.close(); } catch (e) {}
+        if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
+        delete peers[uid]; delete parts[uid]; renderParts();
+    }
+    function checkAlone() {
+        if (!callActive) return;
+        var others = Object.keys(peers).length, inv = Object.keys(invited).length;
+        if (!others && (connectedOnce || (inv && declinedN >= inv))) hangup(connectedOnce ? "Call ended" : "Call declined");
+    }
+    async function joinRoom() {
+        var base = database.ref("calls/" + callId), mine = base.child("peers/" + me.id);
+        mine.onDisconnect().remove(); await mine.set(TS);
+        mineTs = (await mine.once("value")).val() || 0;
+        watch(base.child("peers"), "child_added", function (s) {
+            var uid = s.key; if (uid === me.id) return;
+            setPart(uid, "Connecting…");
+            var t = s.val() || 0;
+            if (t < mineTs || (t === mineTs && uid < me.id)) offerTo(uid);
+        });
+        watch(base.child("peers"), "child_removed", function (s) { closePeer(s.key); checkAlone(); });
+        watch(database.ref("sig/" + callId), "child_added", function (s) {
+            var k = s.key.split("__"); if (k[1] !== me.id) return;
+            var off = k[0], oref = s.ref.child("offer");
+            var fn = oref.on("value", function (v) { if (v.val() && !peers[off]) answerFrom(off, v.val()); });
+            callRefs.push({ ref: oref, ev: "value", fn: fn });
+        });
+        watch(base.child("declined"), "child_added", function (s) {
+            declinedN++;
+            var p = parts[s.key]; toast((p ? p.user.name : "Someone") + " declined");
+            if (p && !peers[s.key]) { delete parts[s.key]; renderParts(); }
+            checkAlone();
+        });
+    }
+    function invite(u) {
+        if (!callActive || invited[u.id] || peers[u.id]) return;
+        invited[u.id] = true; userCache[u.id] = u; setPart(u.id, "Ringing…", u);
+        var inc = database.ref("incoming/" + u.id);
+        inc.onDisconnect().remove();
+        inc.set({ callId: callId, from: me.id, label: callLabel, ts: TS });
+    }
+    async function startCall(list, title) {
+        if (callActive) return;
+        list = (list || []).filter(function (u) { return u && u.online && u.id !== me.id; });
+        if (!list.length) { toast("No one is online to call"); return; }
+        callActive = true; connectedOnce = false; declinedN = 0; invited = {}; peers = {}; parts = {};
+        openCallUI(title || list[0].name); selfPart();
+        try { localStream = await getMic(); levelWatch(me.id, localStream); } catch (e) { hangup("Microphone permission is needed", true); return; }
+        callId = database.ref("calls").push().key;
+        await database.ref("calls/" + callId).set({ host: me.id, ts: TS });
+        await joinRoom();
+        list.forEach(invite);
+        ringT = setTimeout(function () { if (!connectedOnce) hangup("No answer"); }, 45000);
+    }
+    async function acceptCall(v) {
+        if (callActive || !v) return;
+        database.ref("incoming/" + me.id).remove();
+        var snap = await database.ref("calls/" + v.callId).once("value");
+        if (!snap.exists()) { toast("The call has already ended"); return; }
+        callActive = true; connectedOnce = false; declinedN = 0; invited = {}; peers = {}; parts = {};
+        callId = v.callId;
+        var host = await fetchUser(v.from);
+        openCallUI((host ? host.name : "Call") + (v.label && host && v.label !== host.name ? " · " + v.label : "")); $("frClSt").textContent = "Connecting…"; selfPart();
+        try { localStream = await getMic(); levelWatch(me.id, localStream); } catch (e) { hangup("Microphone permission is needed", true); return; }
+        await joinRoom();
+        ringT = setTimeout(function () { if (!connectedOnce) hangup("Could not connect"); }, 25000);
+    }
+    function hangup(reason, noDb) {
+        if (!callActive && !callId) return;
+        var cid = callId, inv = Object.keys(invited);
+        callActive = false; callId = null;
+        clearTimeout(ringT); clearInterval(callTimer); levelStop();
+        callRefs.forEach(function (w) { try { w.ref.off(w.ev, w.fn); } catch (e) {} });
+        callRefs = [];
+        Object.keys(peers).forEach(closePeer);
+        if (localStream) { localStream.getTracks().forEach(function (t) { t.stop(); }); localStream = null; }
+        if (cid && !noDb) {
+            var base = database.ref("calls/" + cid);
+            base.child("peers/" + me.id).onDisconnect().cancel();
+            base.child("peers/" + me.id).remove().then(function () {
+                return base.child("peers").once("value");
+            }).then(function (s) { if (!s.exists()) { base.remove(); database.ref("sig/" + cid).remove(); } });
+            inv.forEach(function (uid) {
+                var inc = database.ref("incoming/" + uid); inc.onDisconnect().cancel();
+                inc.once("value").then(function (s) { var x = s.val(); if (x && x.callId === cid) inc.remove(); });
+            });
+        }
+        peers = {}; parts = {}; invited = {}; callSec = 0; connectedOnce = false;
+        if ($("frCall")) $("frCall").classList.remove("open");
+        if (reason) toast(reason);
+    }
+    function applySpeaker() {
+        Object.keys(peers).forEach(function (uid) {
+            var p = peers[uid];
+            if (p.src) { try { p.src.disconnect(); } catch (e) {} p.src = null; p.gain = null; }
+            if (spkOn && p.stream) {
+                try {
+                    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (actx.state === "suspended") actx.resume();
+                    p.src = actx.createMediaStreamSource(p.stream);
+                    p.gain = actx.createGain(); p.gain.gain.value = 3;
+                    p.src.connect(p.gain); p.gain.connect(actx.destination);
+                    if (p.audio) p.audio.muted = true;
+                } catch (e) { spkOn = false; $("frClSpk").classList.remove("on"); if (p.audio) p.audio.muted = false; toast("Speaker boost isn’t supported on this browser"); }
+            } else if (p.audio) p.audio.muted = false;
+        });
+    }
+
+    /* ---------- friends page: lists ---------- */
+    var list = [], inbox = {}, gids = [], groupsData = {}, watchOff = [];
+    function loadList() { try { list = JSON.parse(LS.getItem("focusLab_friendList") || "[]"); } catch (e) { list = []; } if (!Array.isArray(list)) list = []; }
+    function saveList() { LS.setItem("focusLab_friendList", JSON.stringify(list)); }
+    function lastRead() { try { return JSON.parse(LS.getItem("focusLab_friendRead") || "{}"); } catch (e) { return {}; } }
+    function addFriend(id) { if (id && id !== me.id && list.indexOf(id) < 0) { list.unshift(id); saveList(); renderList(); } }
+    function isUnread(key) { return inbox[key] && inbox[key] !== lastRead()[key]; }
+
+    var PHONE = '<svg viewBox="0 0 24 24" fill="none"><path d="M6.5 4H9.5L11 8L9 9.5C9.9 11.5 12.5 14.1 14.5 15L16 13L20 14.5V17.5C20 18.6 19.1 19.5 18 19.5C10.8 19.5 4.5 13.2 4.5 6C4.5 4.9 5.4 4 6.5 4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+    var CHAT = '<svg viewBox="0 0 24 24" fill="none"><path d="M4 6.5C4 5.4 4.9 4.5 6 4.5H18C19.1 4.5 20 5.4 20 6.5V15C20 16.1 19.1 17 18 17H10L6 20.5V17C4.9 17 4 16.1 4 15V6.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 9H16M8 12.5H13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+    var USERS = '<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19C4 15.8 6.2 14.2 9 14.2C11.8 14.2 14 15.8 14.5 19" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="17" cy="9.5" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16.5 14.4C18.9 14.3 20.4 15.7 20.8 18.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+
+    function iconBtn(svg, title, fn, disabled) {
+        var b = mk("button", "fr-ico"); b.type = "button"; b.title = title; b.innerHTML = svg; b.disabled = !!disabled; b.onclick = fn; return b;
+    }
+    function userBar(u, unread) {
+        var bar = mk("div", "fr-bar " + (u.online ? "on" : "off"));
+        bar.appendChild(avatarEl(u));
+        var w = mk("div", "fr-who"); w.appendChild(mk("strong", "", u.name));
+        var s = mk("div", "fr-st"); s.appendChild(mk("i")); s.appendChild(document.createTextNode(u.online ? "Online" : "Not online")); w.appendChild(s);
+        if (unread) w.appendChild(mk("span", "fr-new", "New"));
+        bar.appendChild(w);
+        bar.appendChild(iconBtn(CHAT, "Chat", function () { openChat({ kind: "user", id: u.id, name: u.name, avatar: u.avatar, online: u.online }); }));
+        bar.appendChild(iconBtn(PHONE, u.online ? "Call" : "Not online", function () { startCall([u]); }, !u.online));
+        var bb = iconBtn(I_BAN, "Block " + u.name, function () { blockUser(u); }); bb.classList.add("fr-ico-danger"); bar.appendChild(bb);
+        return bar;
+    }
+    function groupBar(gid, g, unread) {
+        var bar = mk("div", "fr-bar on");
+        bar.appendChild(avatarEl({ id: gid, name: g.name, photo: g.photo }));
+        var w = mk("div", "fr-who"); w.appendChild(mk("strong", "", g.name));
+        var n = Object.keys(g.members || {}).length;
+        var s = mk("div", "fr-st"); s.appendChild(mk("i")); s.appendChild(document.createTextNode("Group · " + n + " members")); w.appendChild(s);
+        if (unread) w.appendChild(mk("span", "fr-new", "New"));
+        bar.appendChild(w);
+        bar.appendChild(iconBtn(CHAT, "Open group", function () { openChat(groupTarget(gid, g)); }));
+        bar.appendChild(iconBtn(PHONE, "Group call", function () { groupCall(g); }));
+        return bar;
+    }
+    function groupTarget(gid, g) { return { kind: "group", id: gid, name: g.name, photo: g.photo, members: g.members || {}, owner: g.owner }; }
+    async function groupCall(g) {
+        var ids = Object.keys(g.members || {}).filter(function (x) { return x !== me.id; });
+        var users = (await Promise.all(ids.map(fetchUser))).filter(Boolean);
+        startCall(users, g.name);
+    }
+    function renderList() {
+        var box = $("frList"); if (!box) return;
+        watchOff.forEach(function (f) { f(); }); watchOff = [];
+        box.innerHTML = "";
+        if (!list.length && !gids.length) { box.innerHTML = '<div class="fr-empty">No chats yet — search a friend’s ID above, or create a group.</div>'; renderBlocked(box); return; }
+        gids.forEach(function (gid) {
+            var holder = mk("div"); box.appendChild(holder);
+            var ref = database.ref("groups/" + gid);
+            var fn = ref.on("value", function (s) {
+                var g = s.val(); groupsData[gid] = g; holder.innerHTML = "";
+                if (g) holder.appendChild(groupBar(gid, g, isUnread("g_" + gid)));
+            });
+            watchOff.push(function () { ref.off("value", fn); });
+        });
+        list.forEach(function (id) {
+            var holder = mk("div"); box.appendChild(holder);
+            if (blocked[id]) { holder.remove(); return; }
+            var ref = database.ref("users/" + id);
+            var fn = ref.on("value", function (s) {
+                var v = s.val(); if (!v) return;
+                var u = { id: id, name: v.name || id, avatar: v.avatar || "", online: v.online === true };
+                userCache[id] = u; holder.innerHTML = ""; holder.appendChild(userBar(u, isUnread(id)));
+            });
+            watchOff.push(function () { ref.off("value", fn); });
+        });
+        renderBlocked(box);
+    }
+    function renderBlocked(box) {
+        var ids = Object.keys(blocked).filter(function (i) { return blocked[i]; }); if (!ids.length) return;
+        box.appendChild(mk("h3", "fr-h", "Blocked (" + ids.length + ")"));
+        ids.forEach(function (id) {
+            var row = mk("div", "fr-bar off"); row.appendChild(avatarEl({ id: id, name: id }));
+            var w = mk("div", "fr-who"), nm = mk("strong", "", id); w.appendChild(nm); row.appendChild(w);
+            fetchUser(id).then(function (u) { if (u) { nm.textContent = u.name; row.replaceChild(avatarEl(u), row.firstChild); } });
+            var ub = mk("button", "fr-small", "Unblock"); ub.type = "button"; ub.onclick = function () { unblockUser(id); }; row.appendChild(ub);
+            box.appendChild(row);
+        });
+    }
+    function blockUser(u) {
+        var box = mk("div", "fr-mbox"); box.appendChild(mk("h3", "", "Block " + u.name + "?"));
+        box.appendChild(mk("p", "fr-bnote", "They will be removed from your chats and won’t be able to call you. You can unblock them any time from the Blocked list."));
+        var act = mk("div", "fr-mact"), c = mk("button", "fr-small", "Cancel"); c.type = "button"; c.onclick = closeModal;
+        var ok = mk("button", "fr-go danger", "Block"); ok.type = "button";
+        ok.onclick = function () {
+            blocked[u.id] = true; saveBlocked(); list = list.filter(function (x) { return x !== u.id; }); saveList();
+            var up = {}; up["blocks/" + me.id + "/" + u.id] = true; up["inbox/" + me.id + "/" + u.id] = null; database.ref().update(up).catch(function () {});
+            if (chat && chat.kind === "user" && chat.id === u.id) closeChat();
+            closeModal(); $("frResult").innerHTML = ""; renderList(); toast(u.name + " blocked");
+        };
+        act.appendChild(c); act.appendChild(ok); box.appendChild(act); openModal(box);
+        $("frModal").onclick = function (e) { if (e.target === $("frModal")) closeModal(); };
+    }
+    function unblockUser(id) { delete blocked[id]; saveBlocked(); database.ref("blocks/" + me.id + "/" + id).remove().catch(function () {}); renderList(); toast("Unblocked"); }
+    var searchOff = null;
+    function search(raw) {
+        var box = $("frResult"), id = cleanId(raw);
+        if (searchOff) { searchOff(); searchOff = null; }
+        if (!id) { box.innerHTML = ""; return; }
+        if (id === me.id) { box.innerHTML = '<div class="fr-empty">That’s your own ID.</div>'; return; }
+        if (blocked[id]) { box.innerHTML = '<div class="fr-empty">You blocked this person. Unblock them from the Blocked list below.</div>'; return; }
+        var ref = database.ref("users/" + id);
+        ref.once("value").then(function (s) {
+            if (!s.val()) { box.innerHTML = '<div class="fr-empty">No user found with this ID. Check the number and try again.</div>'; return; }
+            var fn = ref.on("value", function (s2) {
+                var d = s2.val(); if (!d) return;
+                var u = { id: id, name: d.name || id, avatar: d.avatar || "", online: d.online === true };
+                userCache[id] = u; box.innerHTML = ""; box.appendChild(userBar(u));
+            });
+            searchOff = function () { ref.off("value", fn); };
+        });
+    }
+
+    /* ---------- modal helper ---------- */
+    function openModal(node) { var m = $("frModal"); m.innerHTML = ""; m.appendChild(node); m.classList.add("open"); }
+    function closeModal() { var m = $("frModal"); m.classList.remove("open"); m.innerHTML = ""; }
+    function memberSearchForm(placeholder, onUser) {
+        var f = mk("form", "fr-msearch"); f.autocomplete = "off";
+        var i = mk("input"); i.placeholder = placeholder; i.maxLength = 16;
+        var b = mk("button", "fr-go", "Add"); b.type = "submit";
+        var err = mk("div", "fr-merr");
+        f.appendChild(i); f.appendChild(b);
+        f.onsubmit = function (e) {
+            e.preventDefault(); err.textContent = "";
+            findUser(i.value).then(function (u) {
+                if (!u) { err.textContent = "No user with that ID"; return; }
+                if (u.id === me.id) { err.textContent = "That’s you"; return; }
+                i.value = ""; onUser(u);
+            });
+        };
+        var wrap = mk("div"); wrap.appendChild(f); wrap.appendChild(err); return wrap;
+    }
+
+    /* ---------- groups ---------- */
+    function newGroupModal(prefill) {
+        var members = {}, photo = "";
+        (prefill || []).forEach(function (u) { members[u.id] = u; });
+        var box = mk("div", "fr-mbox");
+        box.appendChild(mk("h3", "", "New group"));
+        var top = mk("div", "fr-gtop");
+        var ph = mk("label", "fr-gphoto"); ph.appendChild(mk("span", "", "+"));
+        var fi = mk("input"); fi.type = "file"; fi.accept = "image/*"; ph.appendChild(fi);
+        fi.onchange = function () {
+            var f = fi.files[0]; fi.value = ""; if (!f) return;
+            shrink(f, 160, function (d) { photo = d; ph.style.backgroundImage = "url(" + d + ")"; ph.firstChild.style.display = "none"; });
+        };
+        var nm = mk("input", "fr-gname"); nm.placeholder = "Group name"; nm.maxLength = 40;
+        top.appendChild(ph); top.appendChild(nm); box.appendChild(top);
+        var chips = mk("div", "fr-chips"); box.appendChild(chips);
+        function drawChips() {
+            chips.innerHTML = "";
+            Object.keys(members).forEach(function (id) {
+                var c = mk("span", "fr-chip", members[id].name + " ");
+                var x = mk("button", "", "✕"); x.type = "button"; x.onclick = function () { delete members[id]; drawChips(); };
+                c.appendChild(x); chips.appendChild(c);
+            });
+            if (!Object.keys(members).length) chips.appendChild(mk("small", "", "Add friends by their ID"));
+        }
+        drawChips();
+        box.appendChild(memberSearchForm("Add member by ID", function (u) { members[u.id] = u; drawChips(); }));
+        var act = mk("div", "fr-mact");
+        var cancel = mk("button", "fr-small", "Cancel"); cancel.type = "button"; cancel.onclick = closeModal;
+        var go = mk("button", "fr-go", "Create"); go.type = "button";
+        go.onclick = function () {
+            var ids = Object.keys(members);
+            if (!ids.length) { toast("Add at least one member"); return; }
+            var name = nm.value.trim() || ([me.name].concat(ids.map(function (i) { return members[i].name.split(" ")[0]; })).join(", ")).slice(0, 40);
+            var gid = database.ref("groups").push().key, mem = {}; mem[me.id] = true;
+            ids.forEach(function (i) { mem[i] = true; });
+            database.ref("groups/" + gid).set({ name: name, photo: photo, owner: me.id, members: mem, ts: TS }).then(function () {
+                var up = {}; Object.keys(mem).forEach(function (i) { up["userGroups/" + i + "/" + gid] = true; if (i !== me.id) up["inbox/" + i + "/g_" + gid] = TS; });
+                return database.ref().update(up);
+            }).then(function () { closeModal(); openChat(groupTarget(gid, { name: name, photo: photo, members: mem, owner: me.id })); });
+        };
+        act.appendChild(cancel); act.appendChild(go); box.appendChild(act);
+        openModal(box);
+    }
+    function groupInfoModal(t) {
+        var ref = database.ref("groups/" + t.id), box = mk("div", "fr-mbox");
+        function draw(g) {
+            box.innerHTML = "";
+            if (!g) { closeModal(); return; }
+            var isOwner = g.owner === me.id, mem = Object.keys(g.members || {});
+            var head = mk("div", "fr-ginfo"); head.appendChild(avatarEl({ id: t.id, name: g.name, photo: g.photo }));
+            var nm = mk("input", "fr-gname"); nm.value = g.name; nm.disabled = !isOwner; nm.maxLength = 40; head.appendChild(nm); box.appendChild(head);
+            if (isOwner) {
+                var row = mk("div", "fr-mact");
+                var pl = mk("label", "fr-small", "Change photo"); var pf = mk("input"); pf.type = "file"; pf.accept = "image/*"; pf.style.display = "none"; pl.appendChild(pf);
+                pf.onchange = function () { var f = pf.files[0]; pf.value = ""; if (f) shrink(f, 160, function (d) { ref.update({ photo: d }); }); };
+                var sv = mk("button", "fr-small", "Save name"); sv.type = "button"; sv.onclick = function () { var v = nm.value.trim(); if (v) ref.update({ name: v }); };
+                row.appendChild(pl); row.appendChild(sv); box.appendChild(row);
+            }
+            box.appendChild(mk("h4", "fr-sub", mem.length + " members"));
+            mem.forEach(function (id) {
+                var r = mk("div", "fr-mrow"), u = userCache[id];
+                var holder = mk("div", "fr-who"); r.appendChild(mk("span")); holder.appendChild(mk("strong", "", id === me.id ? me.name + " (you)" : id)); r.appendChild(holder);
+                fetchUser(id).then(function (uu) {
+                    if (!uu) return; r.innerHTML = ""; r.className = "fr-mrow " + (uu.online ? "on" : "off");
+                    r.appendChild(avatarEl(uu));
+                    var w = mk("div", "fr-who"); w.appendChild(mk("strong", "", id === me.id ? uu.name + " (you)" : uu.name));
+                    var s = mk("div", "fr-st"); s.appendChild(mk("i")); s.appendChild(document.createTextNode(g.owner === id ? "Admin" : (uu.online ? "Online" : "Not online"))); w.appendChild(s); r.appendChild(w);
+                    if (id !== me.id) {
+                        r.appendChild(iconBtn(CHAT, "Message " + uu.name, function () { closeModal(); openChat({ kind: "user", id: id, name: uu.name, avatar: uu.avatar, online: uu.online }); }));
+                        r.appendChild(iconBtn(PHONE, uu.online ? "Call " + uu.name : "Not online", function () { closeModal(); startCall([uu]); }, !uu.online));
+                        if (isOwner) { var x = mk("button", "fr-small", "Remove"); x.type = "button"; x.onclick = function () { var up = {}; up["groups/" + t.id + "/members/" + id] = null; up["userGroups/" + id + "/" + t.id] = null; database.ref().update(up); }; r.appendChild(x); }
+                    }
+                });
+                box.appendChild(r);
+            });
+            box.appendChild(memberSearchForm("Add member by ID", function (u) {
+                var up = {}; up["groups/" + t.id + "/members/" + u.id] = true; up["userGroups/" + u.id + "/" + t.id] = true; up["inbox/" + u.id + "/g_" + t.id] = TS;
+                database.ref().update(up).then(function () { toast(u.name + " added"); });
+            }));
+            var act = mk("div", "fr-mact");
+            var leave = mk("button", "fr-small danger", "Leave group"); leave.type = "button";
+            leave.onclick = function () {
+                var up = {}; up["groups/" + t.id + "/members/" + me.id] = null; up["userGroups/" + me.id + "/" + t.id] = null;
+                database.ref().update(up).then(function () { closeModal(); closeChat(); });
+            };
+            var cl = mk("button", "fr-go", "Done"); cl.type = "button"; cl.onclick = closeModal;
+            act.appendChild(leave); act.appendChild(cl); box.appendChild(act);
+        }
+        var fn = ref.on("value", function (s) { var g = s.val(); chat && chat.id === t.id && g && (chat.members = g.members || {}); draw(g); });
+        $("frModal").onclick = function (e) { if (e.target === $("frModal")) { ref.off("value", fn); closeModal(); } };
+        openModal(box);
+    }
+
+    /* ---------- chat ---------- */
+    var chat = null, msgDom = {}, replyTo = null;
+    function timeLabel(ts) { var d = new Date(ts || Date.now()); return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); }
+    function previewOf(m) { return m.type === "img" ? "Photo" : m.type === "video" ? "Video" : m.type === "pdf" ? "PDF · " + (m.name || "") : m.type === "voice" ? "Voice message" : m.type === "file" ? (m.name || "File") : String(m.text || "").slice(0, 70); }
+    function nameOf(id) { return id === me.id ? "You" : (userCache[id] ? userCache[id].name : id); }
+    var msgData = {};
+    function pauseVoices() { [].forEach.call(document.querySelectorAll(".fr-vp audio"), function (a) { a.pause(); }); }
+    function voiceEl(m, key) {
+        var src = m.data || m.url, w = mk("div", "fr-vp"), au = document.createElement("audio"); au.preload = "metadata"; au.src = src; au.style.display = "none";
+        var pb = mk("button", "fr-vplay"); pb.type = "button"; pb.innerHTML = I_PLAY;
+        var bars = mk("div", "fr-vbars"), N = 28, spans = [], tm = mk("small", "fr-vt", fmt(m.dur || 0));
+        for (var i = 0; i < N; i++) { var s = mk("i"); s.style.height = (22 + hash(key + i) % 70) + "%"; bars.appendChild(s); spans.push(s); }
+        pb.onclick = function () { if (au.paused) { pauseVoices(); au.play(); } else au.pause(); };
+        au.onplay = function () { pb.innerHTML = I_PAUSE; }; au.onpause = function () { pb.innerHTML = I_PLAY; };
+        au.ontimeupdate = function () { var p = au.duration && isFinite(au.duration) ? au.currentTime / au.duration : 0; spans.forEach(function (x, k) { x.classList.toggle("on", k / N < p); }); tm.textContent = fmt(Math.floor(au.currentTime)); };
+        au.onended = function () { spans.forEach(function (x) { x.classList.remove("on"); }); tm.textContent = fmt(m.dur || 0); pb.innerHTML = I_PLAY; };
+        bars.onclick = function (e) { var r = bars.getBoundingClientRect(); if (au.duration && isFinite(au.duration)) au.currentTime = au.duration * (e.clientX - r.left) / r.width; };
+        w.appendChild(pb); w.appendChild(bars); w.appendChild(tm); w.appendChild(au);
+        return w;
+    }
+    function react(key, emo) {
+        if (!chat) return;
+        var ref = database.ref("chats/" + chat.key + "/" + key + "/reacts/" + me.id), cur = msgData[key] && msgData[key].reacts && msgData[key].reacts[me.id];
+        if (cur === emo) ref.remove(); else ref.set(emo);
+    }
+    function reactBar(d, key, m) {
+        var old = $("frReactBar"); if (old) old.remove();
+        var bar = mk("div", "fr-reactbar"); bar.id = "frReactBar";
+        ["👍", "❤️", "😂", "😮", "😢", "🙏"].forEach(function (e) { var b = mk("button", "", e); b.type = "button"; b.onclick = function () { bar.remove(); react(key, e); }; bar.appendChild(b); });
+        var more = mk("button", "fr-rmore", "⋯"); more.type = "button"; more.onclick = function () { bar.remove(); msgMenu(d, key, m); }; bar.appendChild(more);
+        document.body.appendChild(bar);
+        var r = d.getBoundingClientRect(), w = bar.offsetWidth;
+        bar.style.top = Math.max(8, r.top - 56) + "px";
+        bar.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, m.from === me.id ? r.right - w : r.left)) + "px";
+        setTimeout(function () { document.addEventListener("pointerdown", function once(ev) { if (!ev.target.closest("#frReactBar")) bar.remove(); document.removeEventListener("pointerdown", once); }); }, 60);
+    }
+    function renderMsg(key, m, old) {
+        var box = $("frMsgs"), mine = m.from === me.id;
+        if (!old && blocked[m.from]) return null;
+        msgData[key] = m;
+        var first;
+        if (old) first = old.dataset.first === "1";
+        else { first = !chat.prev || chat.prev.from !== m.from || (m.ts && chat.prev.ts && m.ts - chat.prev.ts > 300000); chat.prev = { from: m.from, ts: m.ts }; }
+        var d = mk("div", "fr-m" + (mine ? " me" : "") + (first ? " first" : "") + (m.type === "img" || m.type === "video" ? " media" : "")); d.dataset.key = key; d.dataset.first = first ? "1" : "0";
+        if (first) {
+            var hd = mk("div", "fr-mh"), u = mine ? me : (userCache[m.from] || { id: m.from, name: m.from, avatar: "" });
+            var hn = mk("b", "", mine ? me.name : u.name);
+            hd.appendChild(avatarEl(u)); hd.appendChild(hn); d.appendChild(hd);
+            if (!mine && !userCache[m.from]) fetchUser(m.from).then(function (x) { if (x) { hn.textContent = x.name; hd.replaceChild(avatarEl(x), hd.firstChild); } });
+        }
+        if (m.reply) { var q = mk("div", "fr-quote"); q.appendChild(mk("b", "", nameOf(m.reply.from))); q.appendChild(mk("span", "", m.reply.text)); d.appendChild(q); }
+        var src = m.data || m.url;
+        if (m.type === "img") { var im = new Image(); im.src = src; im.alt = "Photo"; im.loading = "lazy"; var iw = mk("div", "fr-media"); iw.appendChild(im); iw.appendChild(dlBtn(src, m.name || "photo.jpg")); d.appendChild(iw); }
+        else if (m.type === "video") { var vd = document.createElement("video"); vd.controls = true; vd.preload = "metadata"; vd.setAttribute("playsinline", ""); vd.src = src; var vw = mk("div", "fr-media"); vw.appendChild(vd); vw.appendChild(dlBtn(src, m.name || "video.mp4")); d.appendChild(vw); }
+        else if (m.type === "voice") d.appendChild(voiceEl(m, key));
+        else if (m.type === "file" || m.type === "pdf") {
+            var fc = mk("div", "fr-file"), ic = mk("span", "fr-fico"); ic.innerHTML = I_FILE; if (m.type === "pdf") ic.classList.add("pdf");
+            var fw = mk("div", "fr-fw"); fw.appendChild(mk("b", "", m.name || "File")); fw.appendChild(mk("small", "", (m.type === "pdf" ? "PDF · " : "") + size(m.size || 0)));
+            fc.appendChild(ic); fc.appendChild(fw);
+            if (m.type === "pdf") { var op = mk("a", "fr-dlb", "Open"); op.href = src; op.target = "_blank"; op.rel = "noopener"; op.className = "fr-dlb txt"; fc.appendChild(op); }
+            fc.appendChild(dlBtn(src, m.name || "file")); d.appendChild(fc);
+        } else d.appendChild(mk("span", "fr-txt", m.text || ""));
+        d.appendChild(mk("small", "fr-time", timeLabel(m.ts)));
+        var mb = mk("button", "fr-mm", "⋯"); mb.type = "button"; mb.title = "Message options";
+        mb.onclick = function (e) { e.stopPropagation(); reactBar(d, key, m); }; d.appendChild(mb);
+        var rs = m.reacts ? Object.keys(m.reacts) : [];
+        if (rs.length) {
+            var cnt = {}, mineR = m.reacts[me.id]; rs.forEach(function (x) { var e = m.reacts[x]; cnt[e] = (cnt[e] || 0) + 1; });
+            var rb = mk("div", "fr-reacts");
+            Object.keys(cnt).forEach(function (e) { var c = mk("button", "fr-rc" + (e === mineR ? " mine" : ""), e + (cnt[e] > 1 ? " " + cnt[e] : "")); c.type = "button"; c.onclick = function () { react(key, e); }; rb.appendChild(c); });
+            d.appendChild(rb);
+        }
+        var lp = 0, sx = 0, sy = 0;
+        d.addEventListener("pointerdown", function (e) { if (e.target.closest("button,a,audio,video,input,.fr-vbars")) return; sx = e.clientX; sy = e.clientY; clearTimeout(lp); lp = setTimeout(function () { reactBar(d, key, m); }, 450); });
+        d.addEventListener("pointermove", function (e) { if (Math.hypot(e.clientX - sx, e.clientY - sy) > 8) clearTimeout(lp); });
+        ["pointerup", "pointercancel", "pointerleave"].forEach(function (n) { d.addEventListener(n, function () { clearTimeout(lp); }); });
+        d.addEventListener("contextmenu", function (e) { e.preventDefault(); reactBar(d, key, m); });
+        var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160 || mine;
+        if (old && old.parentNode) old.replaceWith(d); else box.appendChild(d);
+        msgDom[key] = d;
+        if (atBottom && !old) box.scrollTop = box.scrollHeight;
+        return d;
+    }
+    function msgMenu(anchor, key, m) {
+        var old = $("frMsgMenu"); if (old) old.remove();
+        var menu = mk("div", "fr-menu"); menu.id = "frMsgMenu";
+        function item(t, fn) { var b = mk("button", "", t); b.type = "button"; b.onclick = function () { menu.remove(); fn(); }; menu.appendChild(b); }
+        item("Reply", function () { setReply(key, m); });
+        if (m.type === "text") item("Copy", function () { if (navigator.clipboard) navigator.clipboard.writeText(m.text || ""); toast("Copied"); });
+        if (m.from === me.id) item("Delete for everyone", function () { database.ref("chats/" + chat.key + "/" + key).remove(); });
+        document.body.appendChild(menu);
+        var r = anchor.getBoundingClientRect();
+        menu.style.top = Math.min(window.innerHeight - 140, r.bottom + 4) + "px";
+        menu.style.left = Math.max(8, Math.min(window.innerWidth - 190, r.left - 120)) + "px";
+        setTimeout(function () { document.addEventListener("click", function once() { menu.remove(); document.removeEventListener("click", once); }); }, 0);
+    }
+    function setReply(key, m) {
+        replyTo = { from: m.from, text: previewOf(m) };
+        $("frReplyName").textContent = nameOf(m.from); $("frReplyText").textContent = replyTo.text;
+        $("frReplyBar").classList.add("open"); $("frTxt").focus();
+    }
+    function clearReply() { replyTo = null; $("frReplyBar").classList.remove("open"); }
+    function markRead(key) { if (!inbox[key]) return; var r = lastRead(); r[key] = inbox[key]; LS.setItem("focusLab_friendRead", JSON.stringify(r)); }
+    function openChat(t) {
+        closeChat(true);
+        chat = t; chat.key = t.kind === "group" ? "g_" + t.id : pairKey(me.id, t.id);
+        chat.ibox = t.kind === "group" ? "g_" + t.id : t.id;
+        msgDom = {}; msgData = {}; clearReply();
+        $("frChBlock").style.display = t.kind === "user" ? "" : "none";
+        var head = $("frChHead"); head.innerHTML = ""; head.className = "fr-chhead";
+        head.appendChild(avatarEl(t.kind === "group" ? { id: t.id, name: t.name, photo: t.photo } : t));
+        var w = mk("div", "fr-who"); w.appendChild(mk("strong", "", t.name));
+        var st = mk("div", "fr-st"); st.appendChild(mk("i")); var stt = mk("span"); st.appendChild(stt); w.appendChild(st); head.appendChild(w);
+        head.style.cursor = "pointer";
+        head.onclick = function () { if (chat.kind === "group") groupInfoModal(chat); };
+        chat.offs = [];
+        if (t.kind === "user") {
+            addFriend(t.id);
+            var sr = database.ref("users/" + t.id + "/online");
+            var sf = sr.on("value", function (s) { t.online = s.val() === true; head.className = "fr-chhead " + (t.online ? "on" : "off"); stt.textContent = t.online ? "Online" : "Not online"; $("frChCall").disabled = !t.online; });
+            chat.offs.push(function () { sr.off("value", sf); });
+            fetchUser(t.id);
+        } else {
+            head.className = "fr-chhead on"; $("frChCall").disabled = false;
+            var gr = database.ref("groups/" + t.id);
+            var gf = gr.on("value", function (s) {
+                var g = s.val(); if (!g) return; t.members = g.members || {}; t.owner = g.owner;
+                stt.textContent = Object.keys(t.members).length + " members · tap for info";
+                Object.keys(t.members).forEach(function (id) { if (!userCache[id]) fetchUser(id); });
+            });
+            chat.offs.push(function () { gr.off("value", gf); });
+        }
+        $("frMsgs").innerHTML = ""; $("frChat").classList.add("open");
+        var ref = database.ref("chats/" + chat.key).limitToLast(150);
+        var af = ref.on("child_added", function (s) { renderMsg(s.key, s.val()); markRead(chat.ibox); });
+        var rf = ref.on("child_removed", function (s) { var n = msgDom[s.key]; if (n) { n.remove(); delete msgDom[s.key]; } });
+        var cf = ref.on("child_changed", function (s) { var n = msgDom[s.key]; if (n) renderMsg(s.key, s.val(), n); });
+        chat.offs.push(function () { ref.off("child_added", af); ref.off("child_removed", rf); ref.off("child_changed", cf); });
+        markRead(chat.ibox); renderList();
+    }
+    function closeChat(keepUi) {
+        if (chat && chat.offs) chat.offs.forEach(function (f) { f(); });
+        chat = null;
+        if (!keepUi) { $("frChat").classList.remove("open"); $("frPlusMenu").classList.remove("open"); $("frEmojis").classList.remove("open"); renderList(); }
+    }
+    function send(msg) {
+        if (!chat) return;
+        msg.from = me.id; msg.ts = TS;
+        if (replyTo) { msg.reply = replyTo; clearReply(); }
+        database.ref("chats/" + chat.key).push(msg).catch(function () { toast("Message failed — it may be too large"); });
+        if (chat.kind === "group") Object.keys(chat.members || {}).forEach(function (id) { if (id !== me.id) database.ref("inbox/" + id + "/g_" + chat.id).set(TS); });
+        else database.ref("inbox/" + chat.id + "/" + me.id).set(TS);
+    }
+    function sendAttachment(f) {
+        if (!f || !chat) return;
+        var mime = f.type || "", kind = /^image\//.test(mime) ? "img" : /^video\//.test(mime) ? "video" : (mime === "application/pdf" || /\.pdf$/i.test(f.name)) ? "pdf" : "file";
+        if (kind === "img") { shrink(f, 1280, function (d) { send({ type: "img", data: d, name: f.name.slice(0, 80) }); }); return; }
+        var base = { type: kind, name: f.name.slice(0, 80), size: f.size, mime: mime };
+        if (f.size <= MAX_FILE) { var r = new FileReader(); r.onload = function () { base.data = r.result; send(base); }; r.readAsDataURL(f); return; }
+        if (f.size > MAX_UPLOAD) { toast("File is too large (max 50 MB)"); return; }
+        if (!firebase.storage) { toast("Large files need Firebase Storage — enable it first"); return; }
+        var target = chat, up;
+        try { up = firebase.storage().ref("chat/" + chat.key + "/" + Date.now() + "_" + f.name.replace(/[^\w.\-]/g, "_")).put(f); } catch (e) { toast("Upload isn’t available"); return; }
+        toast("Uploading " + f.name + "…");
+        up.on("state_changed", function (s) { toast("Uploading… " + Math.round(100 * s.bytesTransferred / s.totalBytes) + "%"); },
+            function () { toast("Upload failed — check Firebase Storage rules"); },
+            function () { up.snapshot.ref.getDownloadURL().then(function (url) { base.url = url; if (chat === target) send(base); else toast("Chat was closed — file not sent"); }); });
+    }
+    function syncTxt() { $("frCin").classList.toggle("hastxt", !!$("frTxt").value.trim()); }
+    function sendText() { var v = $("frTxt").value.trim(); if (!v) return; $("frTxt").value = ""; syncTxt(); send({ type: "text", text: v.slice(0, 2000) }); }
+
+    /* voice messages */
+    var rec = null, recChunks = [], recStream = null, recStart = 0, recTick = null, recCancel = false, recAc = null, recLv = [];
+    function recWave(an) {
+        var cv = $("frWave"); if (!cv) return; var c = cv.getContext("2d"), buf = new Uint8Array(an.fftSize), n = 0; recLv = [];
+        (function loop() {
+            if (!$("frCin").classList.contains("recording")) return;
+            an.getByteTimeDomainData(buf);
+            if (n++ % 4 === 0) { var s = 0; for (var i = 0; i < buf.length; i++) { var x = (buf[i] - 128) / 128; s += x * x; } recLv.push(Math.min(1, Math.sqrt(s / buf.length) * 4)); if (recLv.length > 40) recLv.shift(); }
+            c.clearRect(0, 0, cv.width, cv.height); c.fillStyle = "#f87171";
+            recLv.forEach(function (v, i) { var h = Math.max(3, v * cv.height); c.fillRect(i * 4, (cv.height - h) / 2, 2.4, h); });
+            requestAnimationFrame(loop);
+        })();
+    }
+    function stopRecUi() { clearInterval(recTick); try { recAc && recAc.close(); } catch (e) {} recAc = null; $("frCin").classList.remove("recording"); $("frMic").classList.remove("rec"); }
+    function startRec() {
+        if (!window.MediaRecorder) { toast("Voice messages aren’t supported on this browser"); return; }
+        getMic().then(function (st) {
+            recStream = st; recChunks = []; recCancel = false;
+            var mt = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
+            rec = new MediaRecorder(st, mt ? { mimeType: mt, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+            rec.ondataavailable = function (e) { if (e.data && e.data.size) recChunks.push(e.data); };
+            rec.onstop = function () {
+                recStream.getTracks().forEach(function (t) { t.stop(); });
+                if (recCancel || !recChunks.length) return;
+                var blob = new Blob(recChunks, { type: rec.mimeType || "audio/webm" }), fr = new FileReader();
+                fr.onload = function () { send({ type: "voice", data: fr.result, dur: Math.max(1, Math.round((Date.now() - recStart) / 1000)) }); };
+                fr.readAsDataURL(blob);
+            };
+            rec.start(); recStart = Date.now();
+            $("frCin").classList.add("recording"); $("frMic").classList.add("rec"); $("frRecT").textContent = "0:00";
+            try { recAc = new (window.AudioContext || window.webkitAudioContext)(); var an = recAc.createAnalyser(); an.fftSize = 256; recAc.createMediaStreamSource(st).connect(an); recWave(an); } catch (e) {}
+            recTick = setInterval(function () {
+                var s = Math.round((Date.now() - recStart) / 1000); $("frRecT").textContent = fmt(s);
+                if (s >= 120) finishRec(false);
+            }, 500);
+        }).catch(function () { toast("Microphone permission is needed"); });
+    }
+    function finishRec(cancel) { if (!rec || rec.state === "inactive") return; recCancel = cancel; stopRecUi(); rec.stop(); }
+
+    function initUI() {
+        loadList();
+        $("frMyId").textContent = me.id;
+        
+        $("frCopy").onclick = function () {
+            if (navigator.clipboard) navigator.clipboard.writeText(me.id).then(function () { toast("ID copied"); }, function () { toast(me.id); }); else toast(me.id);
+        };
+        $("frForm").onsubmit = function (e) { e.preventDefault(); search($("frQ").value); };
+        $("frNewGroup").onclick = function () { newGroupModal([]); };
+        database.ref("inbox/" + me.id).on("value", function (s) {
+            inbox = s.val() || {};
+            Object.keys(inbox).forEach(function (id) { if (id.indexOf("g_") !== 0 && list.indexOf(id) < 0 && !blocked[id]) { list.unshift(id); saveList(); } });
+            if (chat) markRead(chat.ibox);
+            renderList();
+        });
+        database.ref("blocks/" + me.id).on("value", function (s) { var v = s.val(); if (v) { Object.keys(v).forEach(function (k) { if (v[k]) blocked[k] = true; }); saveBlocked(); renderList(); } }, function () {});
+        database.ref("userGroups/" + me.id).on("value", function (s) { gids = Object.keys(s.val() || {}); renderList(); });
+        renderList();
+
+        $("frBack").onclick = function () { closeChat(); };
+        $("frChCall").onclick = function () {
+            if (!chat) return;
+            if (chat.kind === "group") groupCall({ name: chat.name, members: chat.members });
+            else startCall([userCache[chat.id] || { id: chat.id, name: chat.name, avatar: chat.avatar, online: chat.online }]);
+        };
+        $("frChMore").onclick = function () {
+            if (!chat) return;
+            if (chat.kind === "group") groupInfoModal(chat);
+            else newGroupModal([userCache[chat.id] || { id: chat.id, name: chat.name, avatar: chat.avatar }]);
+        };
+        $("frSend").onclick = sendText;
+        $("frTxt").oninput = syncTxt;
+        $("frChBlock").onclick = function () { if (chat && chat.kind === "user") blockUser(userCache[chat.id] || { id: chat.id, name: chat.name }); };
+        $("frTxt").onkeydown = function (e) { if (e.key === "Enter") sendText(); };
+        $("frReplyX").onclick = clearReply;
+        $("frPlus").onclick = function (e) { e.stopPropagation(); $("frEmojis").classList.remove("open"); $("frPlusMenu").classList.toggle("open"); };
+        document.addEventListener("click", function (e) { if (!e.target.closest("#frPlusMenu") && !e.target.closest("#frPlus")) $("frPlusMenu").classList.remove("open"); });
+        ["frImg", "frVid", "frCam", "frPdf", "frFile"].forEach(function (id) {
+            $(id).onchange = function () {
+                var fs = [].slice.call(this.files || []); this.value = ""; $("frPlusMenu").classList.remove("open");
+                fs.forEach(sendAttachment);
+            };
+        });
+        ["😀", "😂", "😍", "👍", "🔥", "🎉", "📚", "💪", "😴", "🙏", "❤️", "✅"].forEach(function (e) {
+            var b = mk("button", "", e); b.type = "button";
+            b.onclick = function () { $("frTxt").value += e; syncTxt(); $("frEmojis").classList.remove("open"); $("frTxt").focus(); };
+            $("frEmojis").appendChild(b);
+        });
+        $("frEmBtn").onclick = function () { $("frPlusMenu").classList.remove("open"); $("frEmojis").classList.toggle("open"); };
+        $("frMic").onclick = function () { if ($("frCin").classList.contains("recording")) finishRec(false); else startRec(); };
+        $("frRecCancel").onclick = function () { finishRec(true); };
+
+        $("frClAdd").onclick = function () { $("frAddBox").classList.toggle("open"); if ($("frAddBox").classList.contains("open")) $("frAddIn").focus(); };
+        $("frClEnd").onclick = function () { hangup(""); };
+        $("frClMute").onclick = function () {
+            muted = !muted; this.classList.toggle("on", muted); if (parts[me.id]) { parts[me.id].status = muted ? "Muted" : "You"; renderParts(); }
+            if (localStream) localStream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
+        };
+        $("frClSpk").onclick = function () { spkOn = !spkOn; this.classList.toggle("on", spkOn); applySpeaker(); toast(spkOn ? "Speaker on — louder" : "Speaker off"); };
+        $("frAddForm").onsubmit = function (e) {
+            e.preventDefault(); var i = $("frAddIn");
+            findUser(i.value).then(function (u) {
+                if (!u) { toast("No user with that ID"); return; }
+                if (!u.online) { toast(u.name + " is not online"); return; }
+                if (!callActive) { toast("Start a call first"); return; }
+                if (parts[u.id]) { toast(u.name + " is already in the call"); return; }
+                i.value = ""; invite(u); toast("Calling " + u.name + "…");
+            });
+        };
+    }
+
+    /* ---------- start ---------- */
+    window.addEventListener("beforeunload", function () { if (callActive && callId) database.ref("calls/" + callId + "/peers/" + me.id).remove(); });
+
+    ensureId().then(function (id) {
+        me.id = id; LS.setItem("focusLab_friendId", id); readProfile();
+        var uRef = database.ref("users/" + id);
+        uRef.update({ name: me.name, avatar: me.avatar });
+        database.ref(".info/connected").on("value", function (s) {
+            if (s.val() !== true) return;
+            var on = uRef.child("online");
+            on.onDisconnect().set(false).then(function () { on.set(true); });
+            uRef.child("lastSeen").onDisconnect().set(TS);
+        });
+        buildBanner();
+        listenIncoming();
+        if (HAS_UI) initUI();
+    }).catch(function () { /* offline, or database rules blocked access */ });
+
+})();
+
+/* ===== PWA: the manifest is built here (no manifest.json / icons folder needed) ===== */
+(function () {
+    try {
+        var base = location.href.replace(/[?#].*$/, "").replace(/[^\/]*$/, "").replace(/pages\/$/, "");
+        var cv = document.createElement("canvas");
+        function icon(n, mask) {
+            cv.width = cv.height = n;
+            var c = cv.getContext("2d"), g = c.createLinearGradient(0, 0, n, n);
+            g.addColorStop(0, "#2563eb"); g.addColorStop(1, "#60a5fa");
+            c.fillStyle = g;
+            if (mask) c.fillRect(0, 0, n, n);
+            else { var r = n * 0.22; c.beginPath(); c.moveTo(r, 0); c.arcTo(n, 0, n, n, r); c.arcTo(n, n, 0, n, r); c.arcTo(0, n, 0, 0, r); c.arcTo(0, 0, n, 0, r); c.closePath(); c.fill(); }
+            c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle";
+            c.font = "900 " + Math.round(n * (mask ? 0.32 : 0.42)) + "px Arial, Helvetica, sans-serif";
+            c.fillText("FL", n / 2, n / 2 + n * 0.02);
+            return cv.toDataURL("image/png");
+        }
+        var i192 = icon(192), i512 = icon(512), im = icon(512, true);
+        var man = {
+            name: "FocusLab Workspace", short_name: "FocusLab",
+            description: "Tasks, videos, notebook and friends in one focus workspace.",
+            start_url: base + "index.html", scope: base, display: "standalone",
+            background_color: "#0f172a", theme_color: "#2563eb",
+            icons: [
+                { src: i192, sizes: "192x192", type: "image/png", purpose: "any" },
+                { src: i512, sizes: "512x512", type: "image/png", purpose: "any" },
+                { src: im, sizes: "512x512", type: "image/png", purpose: "maskable" }
+            ]
+        };
+        var l = document.createElement("link"); l.rel = "manifest";
+        l.href = URL.createObjectURL(new Blob([JSON.stringify(man)], { type: "application/manifest+json" }));
+        document.head.appendChild(l);
+        var a = document.createElement("link"); a.rel = "apple-touch-icon"; a.href = i192; document.head.appendChild(a);
+    } catch (e) {}
+    if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+            var inPages = location.pathname.indexOf("/pages/") > -1;
+            navigator.serviceWorker.register(inPages ? "../sw.js" : "sw.js").catch(function () {});
+        });
+    }
+})();
+
+/* ===== LANGUAGE: English (default) → Arabic, switched from Settings ===== */
+(function () {
+    var AR = {"Home": "الرئيسية", "Tasks": "المهام", "Videos": "الفيديوهات", "Notebook": "الدفتر", "Friends": "الأصدقاء", "Music": "الموسيقى", "Settings": "الإعدادات", "Workspace": "مساحة العمل", "Sign out": "تسجيل الخروج", "Sign In": "تسجيل الدخول", "Create your account": "أنشئ حسابك", "Focus User": "مستخدم فوكس", "User": "مستخدم", "Open menu": "فتح القائمة", "Show the top bar": "إظهار الشريط العلوي", "Close": "إغلاق", "Cancel": "إلغاء", "Back": "رجوع", "Save": "حفظ", "Delete": "حذف", "Copy": "نسخ", "Add": "إضافة", "Search": "بحث", "Send": "إرسال", "More": "المزيد", "Message": "رسالة", "Photo": "صورة", "Video": "فيديو", "Camera": "الكاميرا", "PDF": "PDF", "Any file": "أي ملف", "Attach": "إرفاق", "Emoji": "إيموجي", "Call": "اتصال", "End": "إنهاء", "End call": "إنهاء المكالمة", "Mute": "كتم", "Mute microphone": "كتم الميكروفون", "Speaker": "السماعة", "Block": "حظر", "Unblock": "إلغاء الحظر", "Blocked": "المحظورون", "Settings.": "الإعدادات", "Sound": "الصوت", "Sound is on": "الصوت يعمل", "Sound is off": "الصوت متوقف", "Sound, screen and colours.": "الصوت والشاشة والألوان واللغة.", "Full screen": "ملء الشاشة", "Fill the whole screen with the site": "املأ الشاشة كلها بالموقع", "Appearance": "المظهر", "Light": "فاتح", "Dark": "داكن", "FocusLab": "فوكس لاب", "Language": "اللغة", "Change Avatar": "تغيير الصورة الرمزية", "Change avatar": "تغيير الصورة الرمزية", "Pick an avatar or upload your own photo.": "اختر صورة رمزية أو ارفع صورتك.", "Choose an avatar": "اختر صورة رمزية", "Avatar": "الصورة الرمزية", "Choose Background": "اختر الخلفية", "Backgrounds": "الخلفيات", "Reset Background": "إعادة الخلفية", "Pick a wallpaper, or add your own photos.": "اختر خلفية أو أضف صورك الخاصة.", "YOUR MEDIA": "وسائطك", "Focus Music": "موسيقى التركيز", "+ Add Music": "+ إضافة موسيقى", "Stop Music": "إيقاف الموسيقى", "Get things done.": "أنجز مهامك.", "Stay focused.": "ابقَ مركّزاً.", "Build your productivity": "ابنِ إنتاجيتك", "YOUR PRODUCTIVITY": "إنتاجيتك", "FOCUS • PLAN • ACHIEVE": "ركّز • خطّط • أنجز", "STUDY TOGETHER": "ذاكروا معاً", "Learn and stay inspired": "تعلّم وابقَ ملهَماً", "Manage your daily tasks": "أدِر مهامك اليومية", "Organize your tasks, focus on what matters, and make every study session count.": "نظّم مهامك وركّز على المهم واجعل كل جلسة مذاكرة مثمرة.", "Sign in to start focusing on what matters.": "سجّل الدخول لتبدأ التركيز على ما يهم.", "Chat or call friends while you focus — one-to-one or in a group.": "تحدّث أو اتصل بأصدقائك أثناء التركيز — فردياً أو في مجموعة.", "First name": "الاسم الأول", "Last name": "اسم العائلة", "Email": "البريد الإلكتروني", "Password": "كلمة المرور", "you@example.com": "you@example.com", "Please fill in every field and choose an avatar.": "من فضلك املأ كل الحقول واختر صورة رمزية.", "Created by Ahmed Mohamed & Gamal Mohamed": "من تصميم أحمد محمد وجمال محمد", "FOCUSLAB": "فوكس لاب", "FOCUS SESSION": "جلسة تركيز", "Focus Session": "جلسة تركيز", "Open Tasks": "فتح المهام", "Set your focus session before you start.": "اضبط جلسة التركيز قبل أن تبدأ.", "My Tasks": "مهامي", "All Tasks": "كل المهام", "Add Task": "إضافة مهمة", "Create Task": "إنشاء مهمة", "Create New Task": "إنشاء مهمة جديدة", "Start Task": "ابدأ المهمة", "Delete All": "حذف الكل", "Completed": "المكتملة", "Normal": "عادية", "Important": "مهمة", "Study": "مذاكرة", "Priority": "الأولوية", "Task name": "اسم المهمة", "What do you need to do?": "ماذا تريد أن تنجز؟", "Focus time": "وقت التركيز", "Break": "الراحة", "BREAK TIME": "وقت الراحة", "min": "د", "FILTER TASKS": "تصفية المهام", "QUICK SEARCH": "بحث سريع", "Find a task": "ابحث عن مهمة", "Search tasks...": "ابحث في المهام...", "Search your tasks...": "ابحث في مهامك...", "Bring up a task you're working on...": "استدعِ مهمة تعمل عليها...", "Type at least 2 characters to search your tasks.": "اكتب حرفين على الأقل للبحث في مهامك.", "No tasks yet": "لا توجد مهام بعد", "Create your first task and start focusing.": "أنشئ أول مهمة وابدأ التركيز.", "0 tasks": "0 مهام", "Task in progress": "مهمة قيد التنفيذ", "Your timer is running automatically.": "المؤقت يعمل تلقائياً.", "Task Complete!": "اكتملت المهمة!", "Great job. Keep going.": "عمل رائع. واصل.", "Skip Break": "تخطَّ الراحة", "Take a short rest before your next task.": "خذ استراحة قصيرة قبل مهمتك التالية.", "Dismiss task": "إخفاء المهمة", "Time's Up": "انتهى الوقت", "Time is up.": "انتهى الوقت.", "Timer is paused.": "المؤقت متوقف مؤقتاً.", "Task completed.": "اكتملت المهمة.", "The focus time ended before you finished.": "انتهى وقت التركيز قبل أن تنهي المهمة.", "There are no tasks to delete.": "لا توجد مهام لحذفها.", "One session at a time": "جلسة واحدة في كل مرة", "Always available on this site": "متاح دائماً في الموقع", "Search videos...": "ابحث في الفيديوهات...", "No videos yet": "لا توجد فيديوهات بعد", "Close video": "إغلاق الفيديو", "Search and watch — this library is curated by the site owner.": "ابحث وشاهد — هذه المكتبة من اختيار صاحب الموقع.", "The site owner hasn't added any videos here yet — check back soon.": "لم يضف صاحب الموقع أي فيديو هنا بعد — عاود الزيارة قريباً.", "YouTube": "يوتيوب", "Facebook": "فيسبوك", "TikTok": "تيك توك", "Your ID": "رقمك (ID)", "Friend’s ID": "رقم الصديق (ID)", "Enter your friend’s ID, e.g. FL-20418": "أدخل رقم صديقك، مثل FL-20418", "Your chats": "محادثاتك", "New group": "مجموعة جديدة", "Add person": "إضافة شخص", "Calling…": "جارٍ الاتصال…", "Connecting…": "جارٍ الاتصال…", "Group info / add friends": "معلومات المجموعة / إضافة أصدقاء", "Voice message": "رسالة صوتية", "Cancel recording": "إلغاء التسجيل", "Message options": "خيارات الرسالة", "Add at least one member": "أضف عضواً واحداً على الأقل", "Add friends by their ID": "أضف أصدقاء برقمهم (ID)", "Group name": "اسم المجموعة", "Leave group": "مغادرة المجموعة", "ID copied": "تم نسخ الرقم", "That’s you": "هذا أنت", "No user with that ID": "لا يوجد مستخدم بهذا الرقم", "No one is online to call": "لا أحد متصل للاتصال به", "Start a call first": "ابدأ مكالمة أولاً", "The call has already ended": "انتهت المكالمة بالفعل", "Microphone permission is needed": "مطلوب إذن الميكروفون", "Voice messages aren’t supported on this browser": "الرسائل الصوتية غير مدعومة في هذا المتصفح", "Speaker boost isn’t supported on this browser": "تعزيز السماعة غير مدعوم في هذا المتصفح", "Chat was closed — file not sent": "أُغلقت المحادثة — لم يُرسل الملف", "File is too large (max 50 MB)": "الملف كبير جداً (الحد الأقصى 50 ميجا)", "Large files need Firebase Storage — enable it first": "الملفات الكبيرة تحتاج Firebase Storage — فعّله أولاً", "Upload failed — check Firebase Storage rules": "فشل الرفع — راجع قواعد Firebase Storage", "Upload isn’t available": "الرفع غير متاح", "Message failed — it may be too large": "فشل إرسال الرسالة — قد تكون كبيرة جداً", "Couldn’t read that image": "تعذّرت قراءة الصورة", "Couldn't use that photo. Please try another image.": "تعذّر استخدام الصورة. جرّب صورة أخرى.", "Please choose an image file.": "من فضلك اختر ملف صورة.", "Please choose audio files (MP3, M4A, WAV, OGG, FLAC, MP4 ...).": "من فضلك اختر ملفات صوتية (MP3 وM4A وWAV وOGG وFLAC وMP4 ...).", "This song's format can't be played by your browser. Try an MP3 or M4A version of it.": "صيغة هذه الأغنية غير مدعومة في متصفحك. جرّب نسخة MP3 أو M4A.", "Delete this background?": "حذف هذه الخلفية؟", "Not supported by this browser (iPhone Safari has no full screen).": "غير مدعوم في هذا المتصفح (سفاري على الآيفون لا يدعم ملء الشاشة).", "Storage is full — delete old notebooks": "المساحة ممتلئة — احذف دفاتر قديمة", "Change photo": "تغيير الصورة", "Save name": "حفظ الاسم", "Tap to rename": "اضغط لإعادة التسمية", "Template": "القالب", "Page template": "قالب الصفحة", "Page thumbnails": "مصغّرات الصفحات", "Pages": "الصفحات", "New page": "صفحة جديدة", "Duplicate": "تكرار", "Duplicate page": "تكرار الصفحة", "Delete page": "حذف الصفحة", "Clear page": "مسح الصفحة", "Undo": "تراجع", "Redo": "إعادة", "Zoom in": "تكبير", "Zoom out": "تصغير", "Library": "المكتبة", "Back to library": "الرجوع للمكتبة", "Close book": "إغلاق الدفتر", "Import PDF": "استيراد PDF", "Add PDF": "إضافة PDF", "PDF page": "صفحة PDF", "Drag to move the toolbar": "اسحب لتحريك الشريط", "Pen": "قلم", "Fountain": "حبر", "Calligraphy": "خط", "Pencil": "رصاص", "Brush": "فرشاة", "Marker": "ماركر", "Highlight": "هايلايت", "Eraser": "ممحاة", "Type": "كتابة", "Scroll": "تمرير", "Arrows": "أسهم", "Highlight mode": "وضع الهايلايت", "Free": "حر", "Snap to text": "التقاط النص", "Custom colour": "لون مخصص", "More colours": "ألوان أكثر", "Choose a cover": "اختر غلافاً", "Cover": "الغلاف", "First page": "الصفحة الأولى", "New notebook name": "اسم الدفتر الجديد", "Notes": "ملاحظات", "Cues": "إشارات", "Summary": "ملخص", "Scroll pages / Switch pages": "تمرير الصفحات / التنقل بالأسهم", "Scroll mode · keep scrolling to move between pages": "وضع التمرير · واصل التمرير للانتقال بين الصفحات", "Arrow mode · use the arrows to switch pages": "وضع الأسهم · استخدم الأسهم للتنقل بين الصفحات", "Page cleared · tap Undo to restore": "تم مسح الصفحة · اضغط تراجع للاستعادة", "Tap Delete page again to confirm": "اضغط حذف الصفحة مرة أخرى للتأكيد", "Re-add the PDF to see its pages again": "أعد إضافة الـPDF لرؤية صفحاته", "Opening PDF…": "جارٍ فتح الـPDF…", "PDF added as a new notebook": "أُضيف الـPDF كدفتر جديد", "PDF engine could not load": "تعذّر تحميل محرّك الـPDF", "Book closed — start a new one": "أُغلق الدفتر — ابدأ دفتراً جديداً", "Daily planner (Arabic)": "مخطط يومي (عربي)", "Daily planner (English)": "مخطط يومي (إنجليزي)", "Task list": "قائمة مهام", "White · lines": "أبيض · سطور", "Black · lines": "أسود · سطور", "Grid": "مربعات", "Dotted": "نقاط", "Infinite": "لا نهائية", "Cornell notes": "ملاحظات كورنيل", "Weekly planner": "مخطط أسبوعي", "Weekly planner (Arabic)": "مخطط أسبوعي (عربي)", "Habit tracker": "متتبع العادات", "Study planner": "مخطط المذاكرة", "Legal pad": "دفتر قانوني", "Blueprint": "مخطط أزرق", "Kraft dots": "نقاط كرافت", "Mint grid": "مربعات نعناعية", "Sepia lines": "سطور سيبيا", "Dark dots": "نقاط داكنة", "Dark grid": "مربعات داكنة", "Music staff": "سلّم موسيقي", "Handwriting guide": "دليل الخط اليدوي", "Calligraphy guide": "دليل الخط العربي", "Plain white": "أبيض سادة", "Plain black": "أسود سادة", "Handwriting": "خط اليد", "Modern": "عصري", "Mono": "أحادي", "Serif": "سيريف", "White": "أبيض", "Notebook • FocusLab": "الدفتر • فوكس لاب", "Tasks • FocusLab": "المهام • فوكس لاب", "Videos • FocusLab": "الفيديوهات • فوكس لاب", "Friends • FocusLab": "الأصدقاء • فوكس لاب"};
+    var PAT = [[/^Page (\d+) \/ (\d+)$/,function(m){return 'صفحة '+m[1]+' / '+m[2]}],
+[/^Page (\d+)$/,function(m){return 'صفحة '+m[1]}],
+[/^(\d+) tasks?$/,function(m){return m[1]+' مهام'}],
+[/^(\d+) members?$/,function(m){return m[1]+' أعضاء'}],
+[/^Calling (.+)…?$/,function(m){return 'جارٍ الاتصال بـ '+m[1]}],
+[/^Uploading… (\d+)%$/,function(m){return 'جارٍ الرفع… '+m[1]+'%'}],
+[/^Uploading (.+)…$/,function(m){return 'جارٍ رفع '+m[1]+'…'}],
+[/^Block (.+)\?$/,function(m){return 'حظر '+m[1]+'؟'}],
+[/^Blocked \((\d+)\)$/,function(m){return 'المحظورون ('+m[1]+')'}],
+[/^(.+) blocked$/,function(m){return 'تم حظر '+m[1]}],
+[/^(.+) is not online$/,function(m){return m[1]+' غير متصل'}],
+[/^(.+) is already in the call$/,function(m){return m[1]+' موجود في المكالمة بالفعل'}],
+[/^Could not open PDF: (.+)$/,function(m){return 'تعذّر فتح الـPDF: '+m[1]}],
+[/^(\d+) min$/,function(m){return m[1]+' د'}]];
+    var KEY = "focusLab_lang", lang = "en";
+    try { lang = localStorage.getItem(KEY) === "ar" ? "ar" : "en"; } catch (e) {}
+    var docs = [], orig = new WeakMap(), applied = new WeakMap();
+    var ATTRS = ["placeholder", "title", "aria-label", "alt"];
+
+    function tr(s) {
+        var t = s.replace(/\s+/g, " ").trim();
+        if (!t) return null;
+        if (Object.prototype.hasOwnProperty.call(AR, t)) return AR[t];
+        for (var i = 0; i < PAT.length; i++) { var m = t.match(PAT[i][0]); if (m) return PAT[i][1](m); }
+        return null;
+    }
+    function skip(n) {
+        var p = n.parentNode;
+        if (!p || p.nodeType !== 1) return false;
+        var tag = p.tagName;
+        if (tag === "SCRIPT" || tag === "STYLE" || tag === "TEXTAREA" || tag === "CODE") return true;
+        return !!(p.closest && p.closest("[contenteditable=true],[data-nt]"));
+    }
+    function doText(n) {
+        if (skip(n)) return;
+        var v = n.nodeValue;
+        if (applied.has(n) && applied.get(n) === v) { if (lang === "en") { n.nodeValue = orig.get(n); applied.delete(n); } return; }
+        applied.delete(n);
+        if (lang !== "ar") return;
+        var t = tr(v); if (t === null) return;
+        var out = v.match(/^\s*/)[0] + t + v.match(/\s*$/)[0];
+        orig.set(n, v); n.nodeValue = out; applied.set(n, out);
+    }
+    function doAttr(el, a) {
+        var v = el.getAttribute(a); if (v === null) return;
+        var k = el, rec = applied.get(k) || {}, or = orig.get(k) || {};
+        if (rec[a] !== undefined && rec[a] === v) { if (lang === "en") { el.setAttribute(a, or[a]); delete rec[a]; } return; }
+        delete rec[a];
+        if (lang === "ar") { var t = tr(v); if (t !== null) { or[a] = v; rec[a] = t; el.setAttribute(a, t); } }
+        applied.set(k, rec); orig.set(k, or);
+    }
+    function scan(root, d) {
+        if (!root) return;
+        if (root.nodeType === 3) { doText(root); return; }
+        if (root.nodeType !== 1 && root.nodeType !== 9) return;
+        var w = d.createTreeWalker(root, 4), n;
+        while ((n = w.nextNode())) doText(n);
+        var els = root.nodeType === 1 ? [root].concat([].slice.call(root.querySelectorAll("[placeholder],[title],[aria-label],[alt]"))) : [].slice.call(root.querySelectorAll("[placeholder],[title],[aria-label],[alt]"));
+        els.forEach(function (el) { ATTRS.forEach(function (a) { if (el.hasAttribute && el.hasAttribute(a)) doAttr(el, a); }); });
+    }
+    function titleFix(d) { var t = d.title; if (!t) return; if (lang === "ar") { var x = tr(t); if (x) { d.__t0 = t; d.title = x; } } else if (d.__t0) { d.title = d.__t0; d.__t0 = null; } }
+    function attach(d) {
+        if (!d || !d.body || docs.indexOf(d) > -1) return;
+        docs.push(d);
+        var mo = new MutationObserver(function (list) {
+            list.forEach(function (m) {
+                if (m.type === "characterData") doText(m.target);
+                else if (m.type === "attributes") doAttr(m.target, m.attributeName);
+                else m.addedNodes.forEach(function (n) { scan(n, d); });
+            });
+        });
+        mo.observe(d.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
+        paint(d);
+    }
+    function paint(d) {
+        var r = d.documentElement;
+        r.lang = lang === "ar" ? "ar" : "en"; r.classList.toggle("lang-ar", lang === "ar");
+        scan(d.body, d); titleFix(d);
+    }
+    function ui() {
+        docs.forEach(function (d) { [].forEach.call(d.querySelectorAll("[data-lang-option]"), function (b) { var on = b.dataset.langOption === lang; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); }); });
+    }
+    window.setSiteLang = function (l) {
+        lang = l === "ar" ? "ar" : "en";
+        try { localStorage.setItem(KEY, lang); } catch (e) {}
+        docs.forEach(paint); ui();
+    };
+    function hookFrame() {
+        var f = document.getElementById("nbFrame"); if (!f) return;
+        var go = function () { try { var d = f.contentDocument; if (d && d.body) attach(d); } catch (e) {} };
+        f.addEventListener("load", go); go();
+    }
+    function start() { attach(document); hookFrame(); ui(); }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+})();

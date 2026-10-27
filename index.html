@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FocusLab</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='64' y2='64'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%2360a5fa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='44' font-family='Arial, Helvetica, sans-serif' font-weight='900' font-size='28' fill='white' text-anchor='middle'%3EFL%3C/text%3E%3C/svg%3E">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <link rel="stylesheet" href="style/main.css">
     <script>
         /*
@@ -376,7 +379,7 @@
         </div>
 
         <div class="footer-credit">
-            <span>Created by Ahmed Mohamed</span>
+            <span>Created by Ahmed Mohamed & Gamal Mohamed</span>
 
         </div>
 
@@ -442,6 +445,14 @@
                 </div>
             </div>
 
+            <div class="settings-block">
+                <strong>Language</strong>
+                <div class="appearance-switcher">
+                    <button type="button" class="appearance-option" data-lang-option="en" onclick="setSiteLang('en')">English</button>
+                    <button type="button" class="appearance-option" data-lang-option="ar" onclick="setSiteLang('ar')">العربية</button>
+                </div>
+            </div>
+
             <button type="button" class="settings-signout" onclick="signOut()">Sign out</button>
         </div>
     </div>
@@ -498,7 +509,6 @@
     <script src="music/manifest.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="script/friends.js"></script>
 <script src="script/main.js"></script>
 </body>
 </html>
