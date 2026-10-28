@@ -289,15 +289,20 @@
     <!-- CALL (1:1 and group) -->
     <div class="fr-call" id="frCall">
         <div class="fr-clhead"><h2 id="frClName"></h2><p id="frClSt">Calling…</p></div>
-        <div id="frParts" class="fr-parts"></div>
+        <div class="fr-tabs" id="frTabs" hidden><button type="button" class="on" data-v="0" onclick="frSetView(0)">People</button><button type="button" data-v="1" onclick="frSetView(1)">PDF board</button></div>
+        <div class="fr-pager" id="frPager" data-v="0">
+            <div class="fr-pv" id="frPv0"><div id="frParts" class="fr-parts"></div></div>
+            <div class="fr-pv" id="frPv1"></div>
+        </div>
         <div class="fr-cbottom">
             <div class="fr-addbox" id="frAddBox">
                 <form id="frAddForm" autocomplete="off"><input id="frAddIn" placeholder="Friend’s ID" maxlength="16"><button class="fr-go" type="submit">Call</button></form>
             </div>
             <div class="fr-ctr">
                 <button class="fr-cb" id="frClMute" aria-label="Mute microphone"><svg viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11.5C5.5 15 8.2 17.5 12 17.5C15.8 17.5 18.5 15 18.5 11.5M12 17.5V21M4 4L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Mute</span></button>
-                <button class="fr-cb" id="frClSpk" aria-label="Speaker"><svg viewBox="0 0 24 24" fill="none"><path d="M4 9.5H8L13 5.5V18.5L8 14.5H4V9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 9C17.2 10.2 17.2 13.8 16 15M18.6 6.4C21.1 9 21.1 15 18.6 17.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Speaker</span></button>
+                <button class="fr-cb" id="frClSpk" aria-label="Mute others" title="Mute everyone else for me"><svg viewBox="0 0 24 24" fill="none"><path d="M4 9.5H8L13 5.5V18.5L8 14.5H4V9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 9C17.2 10.2 17.2 13.8 16 15M18.6 6.4C21.1 9 21.1 15 18.6 17.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Mute others</span></button>
                 <button class="fr-cb" id="frClAdd" aria-label="Add person"><svg viewBox="0 0 24 24" fill="none"><circle cx="10" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M4 19C4.5 15.8 6.8 14.2 10 14.2C11.4 14.2 12.6 14.5 13.6 15.1M18 13V19M15 16H21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Add</span></button>
+                <button class="fr-cb" id="frClPdf" aria-label="Share PDF"><svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5H14L19 8.5V20.5H7V3.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3.5V8.5H19M10 14H16M10 17H14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>PDF</span></button>
                 <button class="fr-cb end" id="frClEnd" aria-label="End call"><svg viewBox="0 0 24 24" fill="none"><path d="M3.5 14.5C8 10.5 16 10.5 20.5 14.5L19 17L15.5 15.5V13.2C13.2 12.5 10.8 12.5 8.5 13.2V15.5L5 17L3.5 14.5Z" fill="currentColor"/></svg><span>End</span></button>
             </div>
         </div>
