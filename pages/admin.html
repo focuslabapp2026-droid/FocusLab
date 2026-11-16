@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FocusLab · Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0b1426">
+<link rel="icon" type="image/png" href="../images/favicon-32.png">
+<style>
+:root{--bg:#0b1426;--card:#111c31;--card2:#0e1830;--text:#f8fafc;--mut:#94a3b8;--line:rgba(255,255,255,.09);--blue:#2563eb;--blue2:#60a5fa;--ok:#4ade80;--err:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+[hidden]{display:none!important}
+button{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 15px;cursor:pointer;font-size:14px}
+button:hover{border-color:var(--blue2)}
+button.pri{background:var(--blue);border-color:var(--blue)}
+/* gate */
+.gate{max-width:370px;margin:12vh auto 0;padding:30px 26px;background:var(--card);border:1px solid var(--line);border-radius:20px;text-align:center}
+.gate img{width:64px;height:auto;margin-bottom:8px}
+.gate h1{font-size:22px;margin:0 0 4px}.gate p{margin:0 0 18px;color:var(--mut);font-size:14px}
+.gate input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:13px 14px;font:inherit;font-size:20px;letter-spacing:6px;text-align:center;outline:0}
+.gate input:focus{border-color:var(--blue2)}
+.gate .pri{width:100%;margin-top:12px;padding:12px}
+.err{color:var(--err);font-size:13px;min-height:19px;margin:8px 0 0}
+/* dashboard */
+.wrap{max-width:1120px;margin:0 auto;padding:24px 16px 60px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+header img{width:42px;height:auto}
+header h1{font-size:22px;margin:0;letter-spacing:-.3px}header small{color:var(--mut);display:block;font-size:13px}
+.sp{flex:1}
+.pill{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 13px}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+.pill.on{color:var(--ok)}.pill.on i{background:var(--ok);animation:pu 1.8s infinite}
+@keyframes pu{0%{box-shadow:0 0 0 0 rgba(74,222,128,.6)}70%,100%{box-shadow:0 0 0 8px rgba(74,222,128,0)}}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:22px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.stat span{color:var(--mut);font-size:13px}.stat b{display:block;font-size:34px;margin-top:4px;letter-spacing:-1px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:22px}
+.panel h2{font-size:15px;margin:0;padding:14px 18px;border-bottom:1px solid var(--line)}
+.feed{list-style:none;margin:0;padding:0}
+.feed li{display:flex;gap:10px;align-items:center;padding:10px 18px;font-size:14px}
+.feed li+li{border-top:1px solid var(--line)}
+.feed time{margin-left:auto;color:var(--mut);font-size:12px;white-space:nowrap}
+.tag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.tag.reg{background:rgba(74,222,128,.15);color:var(--ok)}.tag.log{background:rgba(96,165,250,.15);color:var(--blue2)}
+.tools{display:flex;gap:10px;flex-wrap:wrap;padding:14px;border-bottom:1px solid var(--line)}
+.tools input,.tools select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font:inherit;outline:0}
+.tools input{flex:1;min-width:200px}.tools input:focus{border-color:var(--blue2)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:740px}
+th,td{text-align:left;padding:12px 18px;white-space:nowrap;font-size:14px}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);font-weight:600;background:var(--card2)}
+tbody tr+tr td{border-top:1px solid var(--line)}tbody tr:hover{background:rgba(96,165,250,.06)}
+.who{display:flex;align-items:center;gap:11px}
+.av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--blue2));display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0}
+.mut{color:var(--mut)}.empty{text-align:center;color:var(--mut);padding:34px}
+.foot{padding:11px 18px;color:var(--mut);font-size:13px;border-top:1px solid var(--line)}
+.rules{padding:16px 18px;border-color:#b45309}.rules p{margin:0 0 10px;color:var(--mut);font-size:14px}
+.rules pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto;font-size:12.5px;margin:0 0 10px}
+#toasts{position:fixed;right:14px;top:calc(14px + env(safe-area-inset-top,0));z-index:50;display:grid;gap:10px;max-width:min(330px,calc(100vw - 28px))}
+.toast{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue2);border-radius:12px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,.4);font-size:14px;transition:opacity .35s,transform .35s;animation:ti .3s}
+.toast.reg{border-left-color:var(--ok)}.toast.out{opacity:0;transform:translateX(20px)}
+@keyframes ti{from{opacity:0;transform:translateX(20px)}}
+</style>
+</head>
+<body>
+
+<section class="gate" id="gate">
+  <img src="../images/logo.png" alt="">
+  <h1>Admin access</h1>
+  <p>Enter the admin password.</p>
+  <form id="gform" autocomplete="off">
+    <input id="gpw" type="password" inputmode="numeric" placeholder="•••••" autocomplete="off" autofocus>
+    <p class="err" id="gerr"></p>
+    <button class="pri" type="submit">Unlock</button>
+  </form>
+</section>
+
+<div class="wrap" id="dash" hidden>
+  <header>
+    <img src="../images/logo.png" alt="">
+    <div><h1>FocusLab Admin</h1><small>Registered accounts and logins — live</small></div>
+    <span class="sp"></span>
+    <span class="pill" id="live"><i></i><span id="liveTxt">Connecting…</span></span>
+    <button id="lock">Lock</button>
+  </header>
+
+  <section class="panel rules" id="rules" hidden>
+    <p><b>One-time setup:</b> Firestore blocked the read. In Firebase → Firestore Database → Rules paste this and press Publish, then reload this page.</p>
+    <pre id="rulesTxt"></pre>
+    <button class="pri" id="rulesCopy">Copy rules</button>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><span>Registered accounts</span><b id="sTotal">—</b></div>
+    <div class="stat"><span>Logged in today</span><b id="sToday">—</b></div>
+    <div class="stat"><span>New in the last 7 days</span><b id="sWeek">—</b></div>
+    <div class="stat"><span>Total logins</span><b id="sLogins">—</b></div>
+  </section>
+
+  <section class="panel">
+    <h2>Live activity</h2>
+    <ul class="feed" id="feed"><li class="mut">Waiting for data…</li></ul>
+  </section>
+
+  <section class="panel">
+    <div class="tools">
+      <input id="q" type="search" placeholder="Search by name or email…" autocomplete="off">
+      <select id="sort" aria-label="Sort">
+        <option value="login">Sort: last login</option>
+        <option value="created">Sort: newest accounts</option>
+        <option value="name">Sort: name A–Z</option>
+      </select>
+      <button id="csv">Export CSV</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Registered</th><th>Last login</th><th>Logins</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="foot" id="count"></div>
+  </section>
+</div>
+<div id="toasts"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+(function () {
+"use strict";
+var ADMIN_PIN = "13254";                                   /* the password you type on this page */
+var ADMIN_EMAIL = "focuslab-admin-k7q2@focuslab.app";      /* internal Firebase account that is allowed to read the users */
+var FULL_PW = ADMIN_PIN + "#FocusLab-Admin";               /* Firebase needs 6+ characters */
+var $ = function (id) { return document.getElementById(id); };
+var app = null, auth = null, db = null, users = [], prev = {}, loaded = false, unsub = null;
+
+function el(t, c, x) { var n = document.createElement(t); if (c) n.className = c; if (x != null) n.textContent = x; return n; }
+function ms(t) { return t && t.toMillis ? t.toMillis() : 0; }
+function when(t) { return ms(t) ? new Date(ms(t)).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—"; }
+function ago(t) { var s = Math.max(0, (Date.now() - ms(t)) / 1000); if (!ms(t)) return ""; if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + " min ago"; if (s < 86400) return Math.floor(s / 3600) + " h ago"; return Math.floor(s / 86400) + " d ago"; }
+function nameOf(u) { return ((u.firstName || "") + " " + (u.lastName || "")).trim() || (u.email || "—"); }
+function initials(n) { return n.split(/\s+/).slice(0, 2).map(function (w) { return w[0] || ""; }).join("").toUpperCase() || "?"; }
+function live(on, t) { $("live").classList.toggle("on", on); $("liveTxt").textContent = t; }
+
+try {
+  app = firebase.initializeApp({ apiKey: "AIzaSyDlwl5-XURif342D5JQCCTsoqazKLHOl9U", authDomain: "focuslab-e25da.firebaseapp.com", projectId: "focuslab-e25da", appId: "1:534017418669:web:3f034da163d06b90b02d24" }, "fl-admin");
+  auth = app.auth(); db = app.firestore();
+} catch (e) { /* shown by connect() */ }
+
+/* ---------- password gate ---------- */
+function unlock() { sessionStorage.setItem("fl_admin_ok", "1"); $("gate").hidden = true; $("dash").hidden = false; connect(); }
+$("gform").onsubmit = function (e) {
+  e.preventDefault();
+  if ($("gpw").value === ADMIN_PIN) unlock(); else { $("gerr").textContent = "Wrong password."; $("gpw").value = ""; }
+};
+$("gpw").oninput = function () { this.value = this.value.replace(/\D/g, ""); $("gerr").textContent = ""; if (this.value === ADMIN_PIN) unlock(); };
+$("lock").onclick = function () {
+  sessionStorage.removeItem("fl_admin_ok"); if (unsub) unsub();
+  (auth ? auth.signOut().catch(function () {}) : Promise.resolve()).then(function () { location.reload(); });
+};
+if (sessionStorage.getItem("fl_admin_ok") === "1") unlock();
+
+/* ---------- connect to Firebase (internal admin account) ---------- */
+function connect() {
+  if (!auth) { live(false, "Not connected"); $("count").textContent = "Firebase did not load. Check your internet connection and reload."; return; }
+  live(false, "Connecting…");
+  auth.signInWithEmailAndPassword(ADMIN_EMAIL, FULL_PW)
+    .catch(function (e) {
+      if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential") return auth.createUserWithEmailAndPassword(ADMIN_EMAIL, FULL_PW);
+      throw e;
+    })
+    .then(subscribe)
+    .catch(function (e) {
+      var map = {
+        "auth/email-already-in-use": "The internal admin account already exists with a different password. In Firebase → Authentication delete the user " + ADMIN_EMAIL + " and reload.",
+        "auth/operation-not-allowed": "Enable Email/Password in Firebase → Authentication → Sign-in method.",
+        "auth/configuration-not-found": "In Firebase → Authentication press “Get started”, then enable Email/Password.",
+        "auth/unauthorized-domain": "Add this domain in Firebase → Authentication → Settings → Authorized domains.",
+        "auth/operation-not-supported-in-this-environment": "Open this page from a web address (https://… or http://localhost), not by double-clicking the file.",
+        "auth/network-request-failed": "No internet connection.",
+        "auth/too-many-requests": "Too many attempts. Wait a few minutes and reload."
+      };
+      live(false, "Not connected"); $("count").textContent = map[e.code] || ((e.code || "error") + ": " + (e.message || ""));
+    });
+}
+
+function rulesText() {
+  return "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{uid} {\n      allow create, update: if request.auth != null && request.auth.uid == uid;\n      allow read: if request.auth != null && (request.auth.uid == uid\n                  || request.auth.token.email == \"" + ADMIN_EMAIL + "\");\n    }\n  }\n}";
+}
+$("rulesTxt").textContent = rulesText();
+$("rulesCopy").onclick = function () {
+  var b = this; (navigator.clipboard ? navigator.clipboard.writeText(rulesText()) : Promise.reject()).catch(function () {}).then(function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy rules"; }, 1800); });
+};
+
+/* ---------- live data ---------- */
+function subscribe() {
+  if (unsub) unsub();
+  unsub = db.collection("users").onSnapshot(function (snap) {
+    var first = !loaded; loaded = true;
+    if (!first) snap.docChanges().forEach(function (c) {
+      var d = c.doc.data(), id = c.doc.id;
+      if (c.type === "added") toast(nameOf(d) + " just registered", true);
+      else if (c.type === "modified" && ms(d.lastLogin) > (prev[id] || 0)) toast(nameOf(d) + " logged in", false);
+    });
+    users = snap.docs.map(function (d) { var o = d.data(); o.id = d.id; prev[d.id] = ms(o.lastLogin); return o; });
+    $("rules").hidden = true; live(true, "Live"); refresh();
+  }, function (e) {
+    live(false, "Not connected");
+    if (e.code === "permission-denied") $("rules").hidden = false; else $("count").textContent = e.message;
+  });
+}
+function toast(t, reg) {
+  var n = el("div", "toast" + (reg ? " reg" : ""), t); $("toasts").appendChild(n);
+  setTimeout(function () { n.classList.add("out"); setTimeout(function () { n.remove(); }, 400); }, 5000);
+}
+function refresh() { stats(); feed(); table(); }
+function stats() {
+  var mid = new Date().setHours(0, 0, 0, 0), wk = Date.now() - 7 * 864e5, logins = 0;
+  users.forEach(function (u) { logins += u.visits || 1; });
+  $("sTotal").textContent = users.length;
+  $("sToday").textContent = users.filter(function (u) { return ms(u.lastLogin) >= mid; }).length;
+  $("sWeek").textContent = users.filter(function (u) { return ms(u.createdAt) >= wk; }).length;
+  $("sLogins").textContent = logins;
+}
+function feed() {
+  var ev = [];
+  users.forEach(function (u) {
+    if (ms(u.createdAt)) ev.push({ t: u.createdAt, n: nameOf(u), k: "reg" });
+    if (ms(u.lastLogin) && Math.abs(ms(u.lastLogin) - ms(u.createdAt)) > 5000) ev.push({ t: u.lastLogin, n: nameOf(u), k: "log" });
+  });
+  ev.sort(function (a, b) { return ms(b.t) - ms(a.t); });
+  var f = $("feed"); f.innerHTML = "";
+  if (!ev.length) { f.appendChild(el("li", "mut", "No activity yet.")); return; }
+  ev.slice(0, 12).forEach(function (e) {
+    var li = el("li"); li.appendChild(el("span", "tag " + e.k, e.k === "reg" ? "REGISTERED" : "LOGGED IN"));
+    li.appendChild(el("span", "", e.n)); li.appendChild(el("time", "", ago(e.t))); f.appendChild(li);
+  });
+}
+function shown() {
+  var q = $("q").value.trim().toLowerCase(), s = $("sort").value;
+  var l = users.filter(function (u) { return !q || (nameOf(u) + " " + (u.email || "")).toLowerCase().indexOf(q) > -1; });
+  l.sort(function (a, b) { return s === "name" ? nameOf(a).localeCompare(nameOf(b)) : s === "created" ? ms(b.createdAt) - ms(a.createdAt) : ms(b.lastLogin) - ms(a.lastLogin); });
+  return l;
+}
+function table() {
+  var l = shown(), body = $("rows"); body.innerHTML = "";
+  l.forEach(function (u) {
+    var tr = el("tr"), td = el("td"), w = el("div", "who"), n = nameOf(u);
+    w.appendChild(el("div", "av", initials(n))); w.appendChild(el("span", "", n)); td.appendChild(w); tr.appendChild(td);
+    [u.email || "—", when(u.createdAt), when(u.lastLogin), String(u.visits || 1)].forEach(function (t, i) { var c = el("td", i < 3 ? "mut" : "", t); tr.appendChild(c); });
+    body.appendChild(tr);
+  });
+  if (!l.length) { var r = el("tr"), c = el("td", "empty", loaded ? "No accounts found." : "Loading…"); c.colSpan = 5; r.appendChild(c); body.appendChild(r); }
+  $("count").textContent = l.length + " of " + users.length + " accounts";
+}
+$("q").oninput = table; $("sort").onchange = table;
+$("csv").onclick = function () {
+  var q = function (v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; };
+  var rows = [["Name", "Email", "Registered", "Last login", "Logins"].map(q).join(",")];
+  shown().forEach(function (u) { rows.push([nameOf(u), u.email, when(u.createdAt), when(u.lastLogin), u.visits || 1].map(q).join(",")); });
+  var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff" + rows.join("\n")], { type: "text/csv" })); a.download = "focuslab-users.csv"; a.click();
+};
+setInterval(function () { if (!$("dash").hidden) feed(); }, 30000);
+})();
+</script>
+</body>
+</html>

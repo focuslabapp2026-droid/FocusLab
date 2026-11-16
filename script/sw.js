@@ -1,23 +1,18 @@
-/* FocusLab service worker: network first, falls back to cache so the app opens offline too. */
-var CACHE = "focuslab-v1";
-var SHELL = ["./", "index.html", "style/main.css", "script/main.js",
-  "pages/tasks.html", "pages/video.html", "pages/notebook.html", "pages/notebook-app.html", "pages/friends.html"];
-self.addEventListener("install", function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) {
-    return Promise.all(SHELL.map(function (u) { return c.add(u).catch(function () {}); }));
-  }).then(function () { return self.skipWaiting(); }));
+/* FocusLab Admin service worker: lets the admin page install as its own app.
+   Network first (always fresh), cache only as the offline fallback for the app shell. */
+const V = "focuslab-admin-v1";
+const CORE = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+self.addEventListener("install", e => {
+    e.waitUntil(caches.open(V).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => { })))).then(() => self.skipWaiting()));
 });
-self.addEventListener("activate", function (e) {
-  e.waitUntil(caches.keys().then(function (ks) {
-    return Promise.all(ks.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
-  }).then(function () { return self.clients.claim(); }));
+self.addEventListener("activate", e => {
+    e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== V).map(x => caches.delete(x)))).then(() => self.clients.claim()));
 });
-self.addEventListener("fetch", function (e) {
-  var r = e.request;
-  if (r.method !== "GET" || !r.url.startsWith(self.location.origin)) return;
-  e.respondWith(fetch(r).then(function (res) {
-    var copy = res.clone();
-    caches.open(CACHE).then(function (c) { c.put(r, copy); });
-    return res;
-  }).catch(function () { return caches.match(r).then(function (m) { return m || caches.match("index.html"); }); }));
+self.addEventListener("fetch", e => {
+    const r = e.request, u = new URL(r.url);
+    if (r.method !== "GET" || u.origin !== location.origin) return;
+    e.respondWith(fetch(r).then(res => {
+        if (res.ok) { const cp = res.clone(); caches.open(V).then(c => c.put(r, cp)); }
+        return res;
+    }).catch(() => caches.match(r).then(m => m || (r.mode === "navigate" ? caches.match("index.html") : Response.error()))));
 });
